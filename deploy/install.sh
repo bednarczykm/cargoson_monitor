@@ -150,6 +150,15 @@ else
   chmod 600 "$NEXTAUTH_SECRET_FILE"
 fi
 
+CRON_SECRET_FILE="/etc/cargoson-cron.secret"
+if [[ -f "$CRON_SECRET_FILE" ]]; then
+  CRON_SECRET=$(cat "$CRON_SECRET_FILE")
+else
+  CRON_SECRET=$(openssl rand -hex 32)
+  ( umask 077; echo -n "$CRON_SECRET" > "$CRON_SECRET_FILE" )
+  chmod 600 "$CRON_SECRET_FILE"
+fi
+
 ADMIN_PASS_FILE="/etc/cargoson-admin.pass"
 if [[ -f "$ADMIN_PASS_FILE" ]]; then
   ADMIN_PASSWORD=$(cat "$ADMIN_PASS_FILE")
@@ -173,6 +182,7 @@ cat > "$APP_DIR/nextjs_space/.env" <<ENV
 DATABASE_URL='postgresql://cargoson:${DB_PASS}@127.0.0.1:5432/cargoson?connect_timeout=15'
 NEXTAUTH_SECRET='${NEXTAUTH_SECRET}'
 NEXTAUTH_URL='https://${DOMAIN}'
+CRON_SECRET='${CRON_SECRET}'
 CARGOSON_API_KEY=''
 ABACUSAI_API_KEY=''
 WEB_APP_ID=''

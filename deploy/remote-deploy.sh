@@ -59,7 +59,57 @@ if [[ -f "$NGINX_CONF" ]] && ! grep -q 'proxy_read_timeout 300s' "$NGINX_CONF"; 
   fi
 fi
 
-# 4. Restart the app under systemd.
+# 4. Make sure CRON_SECRET exists in .env so /api/cron/check-prices works.
+ENV_FILE="$APP_DIR/nextjs_space/.env"
+SECRET_FILE="/etc/cargoson-cron.secret"
+if [[ -f "$ENV_FILE" ]] && ! grep -q '^CRON_SECRET=' "$ENV_FILE"; then
+  if [[ ! -f "$SECRET_FILE" ]]; then
+    ( umask 077; openssl rand -hex 32 > "$SECRET_FILE" )
+    chmod 600 "$SECRET_FILE"
+  fi
+  CRON_SECRET=$(cat "$SECRET_FILE")
+  echo "CRON_SECRET='${CRON_SECRET}'" >> "$ENV_FILE"
+  echo "added CRON_SECRET to .env"
+fi
+
+# 5. Make sure the systemd timer is installed (idempotent).
+if [[ ! -f /etc/systemd/system/cargoson-cron.timer ]]; then
+  CRON_SECRET=$(cat "$SECRET_FILE" 2>/dev/null || echo "")
+  if [[ -n "$CRON_SECRET" ]]; then
+    cat > /etc/systemd/system/cargoson-cron.service <<UNIT
+[Unit]
+Description=Cargoson Monitor — periodic price check trigger
+After=network.target cargoson.service
+Requires=cargoson.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -fsS --max-time 290 \\
+  -H "Authorization: Bearer ${CRON_SECRET}" \\
+  -X POST http://127.0.0.1:3000/api/cron/check-prices
+UNIT
+
+    cat > /etc/systemd/system/cargoson-cron.timer <<TIMER
+[Unit]
+Description=Cargoson Monitor cron — runs every 5 min, app self-gates on Settings
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=cargoson-cron.service
+
+[Install]
+WantedBy=timers.target
+TIMER
+    systemctl daemon-reload
+    systemctl enable --now cargoson-cron.timer
+    echo "installed cargoson-cron.timer"
+  fi
+fi
+
+# 6. Restart the app under systemd.
 systemctl restart cargoson.service
 sleep 2
 if systemctl is-active --quiet cargoson.service; then
