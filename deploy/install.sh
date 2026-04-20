@@ -96,11 +96,12 @@ echo "==> 3/7  Creating system user '$APP_USER' and cloning repo"
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
   useradd --system --create-home --shell /bin/bash "$APP_USER"
 fi
+GIT_SAFE=(-c "safe.directory=$APP_DIR" -c "safe.directory=*")
 if [[ -d "$APP_DIR/.git" ]]; then
-  git -C "$APP_DIR" fetch --all --quiet
-  git -C "$APP_DIR" reset --hard origin/main
+  git "${GIT_SAFE[@]}" -C "$APP_DIR" fetch --all --quiet
+  git "${GIT_SAFE[@]}" -C "$APP_DIR" reset --hard origin/main
 else
-  git clone --quiet "$REPO_URL" "$APP_DIR"
+  git "${GIT_SAFE[@]}" clone --quiet "$REPO_URL" "$APP_DIR"
 fi
 chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 
