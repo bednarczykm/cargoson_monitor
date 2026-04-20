@@ -69,20 +69,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Get unique dimension/weight combinations from pricelist
-    const uniqueDimensions = new Map<string, { length: number; width: number; height: number; weight: number }>();
-    for (const item of priceList) {
-      const key = getDimensionKey(item.length, item.width, item.height, item.weight);
-      if (!uniqueDimensions.has(key)) {
-        uniqueDimensions.set(key, {
-          length: item.length,
-          width: item.width,
-          height: item.height,
-          weight: item.weight,
-        });
-      }
-    }
-
     const collectionPostcode = settings?.collectionPostcode || "43-300";
     const collectionCountry = settings?.collectionCountry || "PL";
     const collectionDate = formatCollectionDate();
@@ -90,24 +76,51 @@ export async function POST(req: Request) {
     const results: PriceResult[] = [];
     const errors: string[] = [];
 
-    // Build the full (recipient × dimension) task list, then run them through
-    // a bounded concurrency pool so we don't sit serially on 70+ Cargoson
-    // calls. Cargoson tolerates ~10 parallel per-account; 8 is a safe cap.
-    const tasks: Array<{
-      recipient: typeof recipients[number];
+    // Pricelist-driven iteration: only ask Cargoson about routes/packages we
+    // actually care about (i.e. have pricelist rows for). One API call per
+    // (country, dimensions) group, no matter how many pricelist rows share
+    // that route.
+    const recipientByCountry = new Map<string, typeof recipients[number]>();
+    for (const r of recipients) {
+      const cc = r.country.toUpperCase();
+      if (!recipientByCountry.has(cc)) recipientByCountry.set(cc, r);
+    }
+
+    type Dims = { length: number; width: number; height: number; weight: number };
+    type Group = {
+      country: string;
+      dims: Dims;
       dimKey: string;
-      dims: { length: number; width: number; height: number; weight: number };
-    }> = [];
-    for (const recipient of recipients) {
-      for (const [dimKey, dims] of uniqueDimensions) {
-        tasks.push({ recipient, dimKey, dims });
+      recipient: typeof recipients[number];
+      items: typeof priceList;
+    };
+    const groups = new Map<string, Group>();
+    for (const item of priceList) {
+      const cc = item.destinationCountry.toUpperCase();
+      const recipient = recipientByCountry.get(cc);
+      if (!recipient) continue; // skip if we have no active recipient for this country
+      const dimKey = `${cc}|${getDimensionKey(item.length, item.width, item.height, item.weight)}`;
+      const g = groups.get(dimKey);
+      if (g) {
+        g.items.push(item);
+      } else {
+        groups.set(dimKey, {
+          country: cc,
+          dims: { length: item.length, width: item.width, height: item.height, weight: item.weight },
+          dimKey,
+          recipient,
+          items: [item],
+        });
       }
     }
 
+    // Run groups through a bounded concurrency pool.
+    const tasks: Group[] = Array.from(groups.values());
+
     const CONCURRENCY = 8;
 
-    const runOne = async (task: typeof tasks[number]) => {
-      const { recipient, dimKey, dims } = task;
+    const runOne = async (task: Group) => {
+      const { recipient, dimKey, dims, items } = task;
         try {
           const response = await getFreightPrices({
             collection_date: collectionDate,
@@ -132,20 +145,24 @@ export async function POST(req: Request) {
 
           const prices = response?.object?.prices ?? [];
 
-          if (prices.length === 0) {
-            // No API prices - add result with pricelist info only
-            const matchingPriceItems = priceList.filter(
+          // Iterate over the pricelist items in this group (not over API
+          // prices) — the user only wants to see what they priced, not
+          // every carrier Cargoson happens to return.
+          for (const priceItem of items) {
+            const listCur = (priceItem.currency || "PLN").toUpperCase();
+            const listInPLN = listCur === "EUR"
+              ? priceItem.basePrice * EUR_TO_PLN
+              : priceItem.basePrice;
+
+            const matchingApi = prices.find(
               (p) =>
-                p.destinationCountry.toUpperCase() === recipient.country.toUpperCase() &&
-                p.length === dims.length &&
-                p.width === dims.width &&
-                p.height === dims.height &&
-                p.weight === dims.weight
+                carrierNamesMatch(p.carrier || "", priceItem.carrier) &&
+                (p.service || "Standard") === priceItem.serviceMethod,
             );
 
-            for (const priceItem of matchingPriceItems) {
-              const cur = (priceItem.currency || "PLN").toUpperCase();
-              const inPLN = cur === "EUR" ? priceItem.basePrice * EUR_TO_PLN : priceItem.basePrice;
+            if (!matchingApi) {
+              // Pricelist row exists but Cargoson didn't return this
+              // carrier/method → show row with "no API data".
               results.push({
                 recipientName: recipient.name,
                 street: recipient.street,
@@ -156,74 +173,42 @@ export async function POST(req: Request) {
                 serviceMethod: priceItem.serviceMethod,
                 dimensions: `${dims.length}x${dims.width}x${dims.height}`,
                 weight: dims.weight,
-                apiPrice: -1, // -1 means no API data
+                apiPrice: -1,
                 apiCurrency: "N/A",
                 apiPricePLN: -1,
                 priceListPrice: priceItem.basePrice,
-                priceListCurrency: cur,
-                priceListPricePLN: Math.round(inPLN * 100) / 100,
+                priceListCurrency: listCur,
+                priceListPricePLN: Math.round(listInPLN * 100) / 100,
               });
+              continue;
             }
-          } else {
-            for (const price of prices) {
-              const rawCarrierName = price.carrier || "Unknown";
-              const carrierName = normalizeCarrierName(rawCarrierName);
-              const serviceMethod = price.service || "Standard";
-              const apiCurrency = price.currency || "PLN";
-              
-              // Extract BASE PRICE (transport_price) from surcharges, not total price
-              // This excludes fuel surcharges (BAF), energy fees, MAUT, etc.
-              let apiPrice = 0;
-              const surcharges = price.surcharges ?? [];
-              const transportPriceSurcharge = surcharges.find(
-                (s) => s.identifier === "transport_price"
-              );
-              
-              if (transportPriceSurcharge) {
-                apiPrice = parseFloat(transportPriceSurcharge.amount || "0");
-              } else {
-                // Fallback: if no transport_price found, use total price
-                apiPrice = parseFloat(price.price || "0");
-              }
-              
-              // Convert to PLN if needed
-              const apiPricePLN = apiCurrency === "EUR" ? apiPrice * EUR_TO_PLN : apiPrice;
 
-              // Match pricelist by carrier, service method, country and dimensions
-              const matchingPriceItem = priceList.find(
-                (p) =>
-                  carrierNamesMatch(p.carrier, carrierName) &&
-                  p.serviceMethod === serviceMethod &&
-                  p.destinationCountry.toUpperCase() === recipient.country.toUpperCase() &&
-                  p.length === dims.length &&
-                  p.width === dims.width &&
-                  p.height === dims.height &&
-                  p.weight === dims.weight
-              );
+            const apiCurrency = matchingApi.currency || "PLN";
+            // Prefer "transport_price" surcharge (excludes fuel/MAUT/etc)
+            const surcharges = matchingApi.surcharges ?? [];
+            const transport = surcharges.find((s) => s.identifier === "transport_price");
+            const apiPrice = transport
+              ? parseFloat(transport.amount || "0")
+              : parseFloat(matchingApi.price || "0");
+            const apiPricePLN = apiCurrency === "EUR" ? apiPrice * EUR_TO_PLN : apiPrice;
 
-              const listCur = (matchingPriceItem?.currency || "PLN").toUpperCase();
-              const listInPLN = matchingPriceItem
-                ? (listCur === "EUR" ? matchingPriceItem.basePrice * EUR_TO_PLN : matchingPriceItem.basePrice)
-                : null;
-              results.push({
-                recipientName: recipient.name,
-                street: recipient.street,
-                city: recipient.city,
-                postalCode: recipient.postalCode,
-                country: recipient.country,
-                carrier: carrierName,
-                serviceMethod,
-                dimensions: `${dims.length}x${dims.width}x${dims.height}`,
-                weight: dims.weight,
-                apiPrice,
-                apiCurrency,
-                apiPricePLN: Math.round(apiPricePLN * 100) / 100,
-                priceListPrice: matchingPriceItem?.basePrice ?? null,
-                priceListCurrency: matchingPriceItem ? listCur : undefined,
-                priceListPricePLN:
-                  listInPLN === null ? null : Math.round(listInPLN * 100) / 100,
-              });
-            }
+            results.push({
+              recipientName: recipient.name,
+              street: recipient.street,
+              city: recipient.city,
+              postalCode: recipient.postalCode,
+              country: recipient.country,
+              carrier: normalizeCarrierName(matchingApi.carrier || priceItem.carrier),
+              serviceMethod: matchingApi.service || priceItem.serviceMethod,
+              dimensions: `${dims.length}x${dims.width}x${dims.height}`,
+              weight: dims.weight,
+              apiPrice,
+              apiCurrency,
+              apiPricePLN: Math.round(apiPricePLN * 100) / 100,
+              priceListPrice: priceItem.basePrice,
+              priceListCurrency: listCur,
+              priceListPricePLN: Math.round(listInPLN * 100) / 100,
+            });
           }
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : "Unknown error";
