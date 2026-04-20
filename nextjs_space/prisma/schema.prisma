@@ -75,6 +75,9 @@ model PriceListItem {
   weight             Float
   carrier            String
   basePrice          Float
+  currency           String   @default("PLN")
+  source             String   @default("manual")  // "manual" | "csv" | "cargoson_api"
+  lastSyncedAt       DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   destinationCountry String   @default("PL")

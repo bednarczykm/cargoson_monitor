@@ -18,11 +18,15 @@ import {
   Filter,
   ToggleLeft,
   ToggleRight,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CARGOSON_CARRIERS } from "@/lib/carriers";
 import {
   Table,
@@ -43,7 +47,21 @@ interface PriceItem {
   serviceMethod: string;
   destinationCountry: string;
   basePrice: number;
+  currency?: string;
+  source?: string;
+  lastSyncedAt?: string | null;
   isActive: boolean;
+}
+
+interface SyncResult {
+  added: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+  perCountry: { country: string; fetched: number; saved: number }[];
+  dimensions: string;
+  carriersFiltered: string[];
+  countriesProcessed: string[];
 }
 
 type SortKey = "dimensions" | "weight" | "carrier" | "serviceMethod" | "destinationCountry" | "basePrice";
@@ -70,6 +88,21 @@ export default function PriceListPage() {
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Sync-from-API state
+  const [showSync, setShowSync] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [availableCountries, setAvailableCountries] = useState<string[]>([]);
+  const [syncForm, setSyncForm] = useState({
+    countries: [] as string[],
+    carriers: [] as string[],
+    length: "10",
+    width: "10",
+    height: "10",
+    weight: "2",
+    overwrite: false,
+  });
+
   // Filters & sorting
   const [searchText, setSearchText] = useState("");
   const [filterCarrier, setFilterCarrier] = useState("");
@@ -92,6 +125,73 @@ export default function PriceListPage() {
   useEffect(() => {
     fetchItems();
   }, []);
+
+  // Load recipient countries once — used for the sync dialog's country picker
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/recipients");
+        if (!res.ok) return;
+        const data = await res.json();
+        const countries = Array.from(
+          new Set(
+            (data as { country: string; isActive: boolean }[])
+              .filter((r) => r.isActive !== false)
+              .map((r) => r.country.toUpperCase()),
+          ),
+        ).sort();
+        setAvailableCountries(countries);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const toggleSyncCountry = (c: string) => {
+    setSyncForm((f) => ({
+      ...f,
+      countries: f.countries.includes(c)
+        ? f.countries.filter((x) => x !== c)
+        : [...f.countries, c],
+    }));
+  };
+  const toggleSyncCarrier = (c: string) => {
+    setSyncForm((f) => ({
+      ...f,
+      carriers: f.carriers.includes(c)
+        ? f.carriers.filter((x) => x !== c)
+        : [...f.carriers, c],
+    }));
+  };
+  const handleSyncFromApi = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/pricelist/sync-from-api", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          countries: syncForm.countries,
+          carriers: syncForm.carriers,
+          length: parseFloat(syncForm.length),
+          width: parseFloat(syncForm.width),
+          height: parseFloat(syncForm.height),
+          weight: parseFloat(syncForm.weight),
+          overwrite: syncForm.overwrite,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Sync failed");
+      setSyncResult(data as SyncResult);
+      await fetchItems();
+    } catch (e) {
+      setSyncResult({
+        added: 0, updated: 0, skipped: 0,
+        errors: [e instanceof Error ? e.message : String(e)],
+        perCountry: [], dimensions: "", carriersFiltered: [], countriesProcessed: [],
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Get unique carriers and countries for filters
   const uniqueCarriers = useMemo(() => [...new Set(items.map(i => i.carrier))].sort(), [items]);
@@ -377,12 +477,189 @@ export default function PriceListPage() {
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => { setShowSync(true); setSyncResult(null); }}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Aktualizuj z API Cargosona
+          </Button>
           <Button onClick={() => setShowForm(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Dodaj pozycję
           </Button>
         </div>
       </div>
+
+      {showSync && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-blue-600" />
+              Aktualizacja cennika z API Cargosona
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => { setShowSync(false); setSyncResult(null); }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <div className="text-sm font-semibold text-slate-700 mb-2">
+                Kraje ({syncForm.countries.length === 0 ? "wszystkie" : syncForm.countries.length} wybrane)
+              </div>
+              <p className="text-xs text-slate-500 mb-2">
+                Brak zaznaczenia = odpytanie wszystkich krajów aktywnych odbiorców ({availableCountries.length}).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {availableCountries.map((c) => {
+                  const on = syncForm.countries.includes(c);
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => toggleSyncCountry(c)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition ${on ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-700 border-slate-300 hover:border-blue-500"}`}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+                {syncForm.countries.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSyncForm((f) => ({ ...f, countries: [] }))}
+                    className="px-3 py-1 rounded-full text-xs text-slate-500 hover:text-slate-900"
+                  >
+                    wyczyść
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold text-slate-700 mb-2">
+                Przewoźnicy ({syncForm.carriers.length === 0 ? "wszyscy" : syncForm.carriers.length} wybrani)
+              </div>
+              <p className="text-xs text-slate-500 mb-2">
+                Brak zaznaczenia = zapisujemy wszystko co zwróci API.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {CARGOSON_CARRIERS.map((c) => {
+                  const on = syncForm.carriers.includes(c.name);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => toggleSyncCarrier(c.name)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition ${on ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-700 border-slate-300 hover:border-emerald-500"}`}
+                    >
+                      {c.name}
+                    </button>
+                  );
+                })}
+                {syncForm.carriers.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSyncForm((f) => ({ ...f, carriers: [] }))}
+                    className="px-3 py-1 rounded-full text-xs text-slate-500 hover:text-slate-900"
+                  >
+                    wyczyść
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold text-slate-700 mb-2">Paczka testowa</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Input type="number" placeholder="Długość (cm)"
+                  value={syncForm.length}
+                  onChange={(e) => setSyncForm({ ...syncForm, length: e.target.value })} />
+                <Input type="number" placeholder="Szerokość (cm)"
+                  value={syncForm.width}
+                  onChange={(e) => setSyncForm({ ...syncForm, width: e.target.value })} />
+                <Input type="number" placeholder="Wysokość (cm)"
+                  value={syncForm.height}
+                  onChange={(e) => setSyncForm({ ...syncForm, height: e.target.value })} />
+                <Input type="number" step="0.01" placeholder="Waga (kg)"
+                  value={syncForm.weight}
+                  onChange={(e) => setSyncForm({ ...syncForm, weight: e.target.value })} />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Checkbox
+                checked={syncForm.overwrite}
+                onCheckedChange={(v) => setSyncForm({ ...syncForm, overwrite: v === true })}
+              />
+              <span className="text-sm text-slate-700">
+                Nadpisz istniejące pozycje cennika (dla tych samych wymiarów / przewoźnika / kraju)
+              </span>
+            </label>
+
+            <div className="flex items-center gap-3">
+              <Button onClick={handleSyncFromApi} disabled={syncing} className="bg-blue-600 hover:bg-blue-700">
+                {syncing ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Pobieranie… może potrwać do minuty</>
+                ) : (
+                  <><RefreshCw className="mr-2 h-4 w-4" /> Uruchom synchronizację</>
+                )}
+              </Button>
+              <span className="text-xs text-slate-500">
+                Odpytywanie {syncForm.countries.length === 0 ? availableCountries.length : syncForm.countries.length} kraj(ów),
+                ~1s na każdy.
+              </span>
+            </div>
+
+            {syncResult && (
+              <div className={`p-4 rounded-lg border ${syncResult.errors.length > 0 ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {syncResult.errors.length > 0 ? (
+                    <AlertCircle className="h-5 w-5 text-amber-600" />
+                  ) : (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  )}
+                  <div className="font-semibold text-slate-800">
+                    Synchronizacja zakończona
+                  </div>
+                </div>
+                <div className="text-sm text-slate-700 space-y-1">
+                  <div>Dodane: <strong>{syncResult.added}</strong> · Zaktualizowane: <strong>{syncResult.updated}</strong> · Pominięte: <strong>{syncResult.skipped}</strong></div>
+                  <div className="text-xs text-slate-500">{syncResult.dimensions}</div>
+                  {syncResult.perCountry.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-slate-600 hover:text-slate-900">
+                        Szczegóły po krajach
+                      </summary>
+                      <div className="mt-2 grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+                        {syncResult.perCountry.map((p) => (
+                          <div key={p.country} className={`px-2 py-1 rounded border ${p.saved > 0 ? "bg-white" : "bg-slate-100 text-slate-500"}`}>
+                            <strong>{p.country}</strong>: {p.saved}/{p.fetched}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  {syncResult.errors.length > 0 && (
+                    <details className="mt-2" open>
+                      <summary className="cursor-pointer text-xs text-amber-700">
+                        Błędy ({syncResult.errors.length})
+                      </summary>
+                      <ul className="mt-1 text-xs text-amber-800 list-disc ml-5 space-y-0.5">
+                        {syncResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {showForm && (
         <Card>
