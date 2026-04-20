@@ -15,6 +15,8 @@ interface SyncRequest {
   width?: number;               // cm, default 10
   height?: number;              // cm, default 10
   weight?: number;              // kg, default 2
+  packageType?: string;         // Cargoson package_type, default "CTN". Try "PACKAGE" or "EUR" to
+                                // see which carriers (DHL Parcel, Raben, etc.) Cargoson returns.
   overwrite?: boolean;          // if false, only create missing rows (default: false)
 }
 
@@ -32,6 +34,7 @@ export async function POST(req: Request) {
     const W = body.width ?? 10;
     const H = body.height ?? 10;
     const KG = body.weight ?? 2;
+    const PKG = (body.packageType || "CTN").toUpperCase();
     const overwrite = body.overwrite === true;
     const carrierFilter = new Set(
       (body.carriers ?? []).map((c) => normalizeCarrierName(c).toLowerCase()),
@@ -100,7 +103,7 @@ export async function POST(req: Request) {
           rows_attributes: {
             "0": {
               quantity: "1",
-              package_type: "CTN",
+              package_type: PKG,
               weight: String(KG),
               length: String(L),
               width: String(W),
@@ -244,6 +247,7 @@ export async function POST(req: Request) {
       perCountry,
       debugSamples,
       dimensions: `${L}x${W}x${H} cm, ${KG} kg`,
+      packageType: PKG,
       carriersFiltered: Array.from(carrierFilter),
       countriesProcessed: countriesToSync,
     });
