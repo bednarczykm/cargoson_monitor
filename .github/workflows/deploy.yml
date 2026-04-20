@@ -1,0 +1,27 @@
+name: Deploy to cargoson.efapp.pl
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**', '.github/**']
+  workflow_dispatch: {}
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Trigger remote deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 "${DEPLOY_USER}@${DEPLOY_HOST}" 'sudo /usr/local/bin/cargoson-deploy'
