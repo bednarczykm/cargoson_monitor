@@ -76,16 +76,48 @@ export async function PUT(req: Request) {
         data: { status: "resolved" },
       });
 
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         resolved: result.count,
-        message: `Rozwiązano ${result.count} alertów` 
+        message: `Rozwiązano ${result.count} alertów`
       });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     console.error("Error bulk updating alerts:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
+// Bulk delete: ?scope=all | resolved | unresolved (default: all)
+export async function DELETE(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const scope = searchParams.get("scope") || "all";
+
+    const where =
+      scope === "resolved"
+        ? { status: "resolved" }
+        : scope === "unresolved"
+        ? { status: "unresolved" }
+        : {}; // all
+
+    const result = await prisma.alert.deleteMany({ where });
+
+    return NextResponse.json({
+      success: true,
+      deleted: result.count,
+      scope,
+      message: `Skasowano ${result.count} alertów`,
+    });
+  } catch (error) {
+    console.error("Error deleting alerts:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

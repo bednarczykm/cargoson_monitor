@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Download, CheckCircle, Loader2, Filter, CheckCheck } from "lucide-react";
+import { AlertTriangle, Download, CheckCircle, Loader2, Filter, CheckCheck, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +34,8 @@ export default function AlertsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [resolvingAll, setResolvingAll] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchAlerts = async () => {
     try {
@@ -68,7 +70,7 @@ export default function AlertsPage() {
     if (!confirm("Czy na pewno chcesz oznaczyć wszystkie nierozwiązane alerty jako rozwiązane?")) {
       return;
     }
-    
+
     setResolvingAll(true);
     try {
       const res = await fetch("/api/alerts", {
@@ -84,6 +86,49 @@ export default function AlertsPage() {
       console.error("Error:", error);
     } finally {
       setResolvingAll(false);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    const scope = filter === "all" ? "all" : filter; // honors the current filter
+    const label =
+      scope === "resolved"
+        ? "rozwiązane"
+        : scope === "unresolved"
+        ? "nierozwiązane"
+        : "WSZYSTKIE";
+    if (!confirm(
+      `Czy na pewno chcesz TRWALE SKASOWAĆ ${label} alerty? ` +
+      `Operacja jest nieodwracalna.`
+    )) {
+      return;
+    }
+    setDeletingAll(true);
+    try {
+      const res = await fetch(`/api/alerts?scope=${scope}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        fetchAlerts();
+      } else {
+        alert(data.error || "Nie udało się skasować alertów");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
+  const handleDeleteOne = async (id: string) => {
+    if (!confirm("Skasować ten alert?")) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/alerts/${id}`, { method: "DELETE" });
+      if (res.ok) fetchAlerts();
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -139,8 +184,8 @@ export default function AlertsPage() {
         </div>
         <div className="flex items-center gap-2">
           {unresolvedCount > 0 && (
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={handleResolveAll}
               disabled={resolvingAll}
               className="text-green-600 border-green-300 hover:bg-green-50"
@@ -151,6 +196,21 @@ export default function AlertsPage() {
                 <CheckCheck className="mr-2 h-4 w-4" />
               )}
               Rozwiąż wszystkie ({unresolvedCount})
+            </Button>
+          )}
+          {alerts.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={handleDeleteAll}
+              disabled={deletingAll}
+              className="text-red-600 border-red-300 hover:bg-red-50"
+            >
+              {deletingAll ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Kasuj {filter === "all" ? "wszystkie" : filter === "resolved" ? "rozwiązane" : "nierozwiązane"} ({alerts.length})
             </Button>
           )}
           <Button variant="outline" onClick={handleExport}>
@@ -239,7 +299,7 @@ export default function AlertsPage() {
                         {alert.status === "resolved" ? "Rozwiązany" : "Oczekuje"}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right whitespace-nowrap">
                       {alert.status !== "resolved" && (
                         <Button
                           variant="ghost"
@@ -250,6 +310,19 @@ export default function AlertsPage() {
                           Rozwiąż
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteOne(alert.id)}
+                        disabled={deletingId === alert.id}
+                        title="Skasuj alert"
+                      >
+                        {deletingId === alert.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-red-500" />
+                        ) : (
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        )}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
