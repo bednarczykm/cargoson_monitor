@@ -1,0 +1,138 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/cargoson_monitor/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  password      String
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Recipient {
+  id         String   @id @default(cuid())
+  name       String
+  street     String
+  city       String
+  postalCode String
+  country    String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isActive   Boolean  @default(true)
+}
+
+model PriceListItem {
+  id                 String   @id @default(cuid())
+  length             Float
+  width              Float
+  height             Float
+  weight             Float
+  carrier            String
+  basePrice          Float
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  destinationCountry String   @default("PL")
+  serviceMethod      String   @default("Standard")
+  isActive           Boolean  @default(true)
+
+  @@unique([length, width, height, weight, carrier, serviceMethod, destinationCountry])
+}
+
+model Settings {
+  id                   String   @id @default(cuid())
+  tolerancePercent     Float    @default(0)
+  checkIntervalMinutes Int      @default(60)
+  pauseStart           String   @default("23:00")
+  pauseEnd             String   @default("05:00")
+  alertEmail           String?
+  slackWebhook         String?
+  monitoringEnabled    Boolean  @default(false)
+  collectionPostcode   String   @default("10115")
+  collectionCountry    String   @default("DE")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model CheckHistory {
+  id                 String   @id @default(cuid())
+  checkDate          DateTime @default(now())
+  recipientsCount    Int
+  alertsCount        Int
+  status             String   @default("completed")
+  csvData            String?
+  createdAt          DateTime @default(now())
+  discrepanciesCount Int      @default(0)
+}
+
+model Alert {
+  id             String   @id @default(cuid())
+  checkDate      DateTime @default(now())
+  recipientId    String
+  recipientName  String
+  city           String
+  carrier        String
+  apiPrice       Float
+  priceListPrice Float?
+  difference     Float?
+  percentDiff    Float?
+  status         String   @default("unresolved")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model NotificationLog {
+  id        String   @id @default(cuid())
+  type      String
+  alertId   String?
+  message   String
+  status    String
+  error     String?
+  createdAt DateTime @default(now())
+}

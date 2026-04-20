@@ -1,0 +1,49 @@
+# ---- Secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+build/
+dist/
+.yarn/cache
+.yarn/install-state.gz
+.pnp.*
+*.tsbuildinfo
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# ---- Logs / runtime ----
+logs/
+*.log
+dev_server.log
+cargoson_monitor_logs/
+
+# ---- OS / editor cruft ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# ---- Local data dumps ----
+Uploads/
+*.zip
+task_summaries/
+output/last_run_summary.json
+
+# ---- Prisma ----
+prisma/migrations/dev.db*
