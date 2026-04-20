@@ -182,8 +182,8 @@ ENV
 chown "$APP_USER":"$APP_USER" "$APP_DIR/nextjs_space/.env"
 chmod 600 "$APP_DIR/nextjs_space/.env"
 
-# Write seed script to the repo (so it's runnable via `npx tsx ...`)
-SEED_SCRIPT="$APP_DIR/deploy/_seed-admin.ts"
+# Write seed script INSIDE nextjs_space so Node can find node_modules/@prisma/client
+SEED_SCRIPT="$APP_DIR/nextjs_space/scripts/_seed-admin.ts"
 cat > "$SEED_SCRIPT" <<'TS'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
@@ -244,7 +244,7 @@ echo "    [build] prisma db push"
 npx prisma db push --accept-data-loss --skip-generate
 
 echo "    [build] seed admin"
-npx tsx /opt/cargoson_monitor/deploy/_seed-admin.ts
+npx tsx scripts/_seed-admin.ts
 
 echo "    [build] next build"
 npm run build
