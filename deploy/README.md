@@ -1,26 +1,27 @@
 # Deploy — Cargoson Monitor on a VPS
 
 Single-command install for Ubuntu 22/24 or Debian 12 VPS. Installs Node.js 20,
-PostgreSQL, nginx, pm2 and Let's Encrypt SSL; builds the Next.js app; creates
-an admin user.
+PostgreSQL, nginx and Let's Encrypt SSL; builds the Next.js app; creates an
+admin user; runs the app under systemd.
 
 ## One-liner
 
-After SSHing to the server as root (or a sudo-capable user):
+After SSHing to the server:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bednarczykm/cargoson_monitor/main/deploy/install.sh \
-  | sudo DOMAIN=marcin.skalci.pl ADMIN_EMAIL=marcinbednarczyk9@gmail.com bash
+  | sudo DOMAIN=cargoson.efapp.pl ADMIN_EMAIL=you@example.com bash
 ```
 
 The script is **idempotent** — re-running it pulls the latest `main`, reinstalls
-dependencies, and restarts the app via pm2. The admin password is generated once
-on first run and stored at `/etc/cargoson-admin.pass` (chmod 600, root only).
+dependencies, and restarts the app. The admin password is generated once on
+first run and stored at `/etc/cargoson-admin.pass` (chmod 600, root only). All
+output is also written to `/var/log/cargoson-install.log`.
 
 ## Prerequisites
 
-- Public domain pointing to the VPS (we use `marcin.skalci.pl`) — check with `dig +short marcin.skalci.pl`
-- Ports 80 and 443 open to the internet (`ufw` will be configured to allow them)
+- Public domain pointing to the VPS — check with `dig +short $DOMAIN`
+- Ports 80 and 443 open to the internet
 - Root or sudo access
 
 ## What the script sets up
@@ -32,41 +33,35 @@ on first run and stored at `/etc/cargoson-admin.pass` (chmod 600, root only).
 | Environment    | `/opt/cargoson_monitor/nextjs_space/.env` (chmod 600)|
 | Database       | PostgreSQL local, db=`cargoson`, user=`cargoson`     |
 | Secrets        | `/etc/cargoson-db.pass`, `/etc/cargoson-nextauth.secret`, `/etc/cargoson-admin.pass` |
-| Process        | `pm2` running `npm start` on port 3000               |
+| Service        | systemd unit `cargoson.service` running `npm start`  |
 | Reverse proxy  | nginx `/etc/nginx/sites-enabled/cargoson`            |
 | TLS            | certbot + Let's Encrypt (auto-renew via systemd timer)|
-
-## After installation
-
-Log in at `https://marcin.skalci.pl` with the admin email and the password
-printed at the end of the installer. The password can be read anytime with:
-
-```bash
-sudo cat /etc/cargoson-admin.pass
-```
 
 ## Operations
 
 ```bash
 # Status
-sudo -u cargoson pm2 status
+sudo systemctl status cargoson
 
-# Logs
-sudo -u cargoson pm2 logs cargoson --lines 200
+# Logs (follow)
+sudo journalctl -u cargoson -f
+
+# Logs (last 200 lines)
+sudo journalctl -u cargoson -n 200 --no-pager
 
 # Restart
-sudo -u cargoson pm2 restart cargoson
+sudo systemctl restart cargoson
 
 # Update to latest main + rebuild
 curl -fsSL https://raw.githubusercontent.com/bednarczykm/cargoson_monitor/main/deploy/install.sh \
-  | sudo DOMAIN=marcin.skalci.pl ADMIN_EMAIL=marcinbednarczyk9@gmail.com bash
+  | sudo DOMAIN=cargoson.efapp.pl ADMIN_EMAIL=you@example.com bash
 ```
 
 ## Resetting the admin password
 
 ```bash
 sudo rm /etc/cargoson-admin.pass
-sudo DOMAIN=marcin.skalci.pl ADMIN_EMAIL=marcinbednarczyk9@gmail.com \
+sudo DOMAIN=cargoson.efapp.pl ADMIN_EMAIL=you@example.com \
   bash /opt/cargoson_monitor/deploy/install.sh
 # A new password is generated and printed.
 ```
@@ -78,5 +73,17 @@ The installer leaves `CARGOSON_API_KEY=''` empty — fill it in after install:
 ```bash
 sudo -u cargoson sed -i "s|^CARGOSON_API_KEY=.*|CARGOSON_API_KEY='your_real_key'|" \
   /opt/cargoson_monitor/nextjs_space/.env
-sudo -u cargoson pm2 restart cargoson
+sudo systemctl restart cargoson
+```
+
+## Uninstall
+
+```bash
+sudo systemctl stop cargoson && sudo systemctl disable cargoson
+sudo rm -f /etc/systemd/system/cargoson.service && sudo systemctl daemon-reload
+sudo rm -f /etc/nginx/sites-enabled/cargoson /etc/nginx/sites-available/cargoson
+sudo systemctl reload nginx
+sudo -u postgres dropdb cargoson && sudo -u postgres dropuser cargoson
+sudo rm -rf /opt/cargoson_monitor /etc/cargoson-*.{pass,secret}
+sudo deluser --remove-home cargoson
 ```
