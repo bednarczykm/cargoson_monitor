@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 import { prisma } from "@/lib/db";
-import { getFreightPrices, formatCollectionDate } from "@/lib/cargoson";
+import { getFreightPrices, formatCollectionDate, calculateCBM } from "@/lib/cargoson";
 import { carrierNamesMatch, normalizeCarrierName } from "@/lib/carriers";
 import { sendSlackNotification } from "@/lib/slack";
 
@@ -94,17 +94,19 @@ export async function POST(req: Request) {
             collection_country: collectionCountry,
             delivery_postcode: recipient.postalCode,
             delivery_country: recipient.country,
-            // Match the legacy Python monitor's payload (array + EUR pallet +
-            // weight-only). Our previous object-form with CTN + full dimensions
-            // pushed Cargoson into freight pricing and zeroed out DPD/Schenker.
-            rows_attributes: [
-              {
-                quantity: 1,
-                package_type: "EUR",
-                weight: dims.weight,
+            rows_attributes: {
+              "0": {
+                quantity: "1",
+                package_type: "CTN",
+                weight: dims.weight.toString(),
+                length: dims.length.toString(),
+                width: dims.width.toString(),
+                height: dims.height.toString(),
+                cbm: calculateCBM(dims.length, dims.width, dims.height),
+                ldm: "0",
                 description: "Goods",
               },
-            ],
+            },
           });
 
           const prices = response?.object?.prices ?? [];

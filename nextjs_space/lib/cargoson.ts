@@ -1,29 +1,24 @@
 // Cargoson API client.
 //
-// IMPORTANT: match the request shape used by the old Python monitor
-// (python_scripts/monitor_prices.py), which is the only shape known to
-// return realistic prices + full carrier coverage (DPD, Schenker, etc.)
-// on this account. An earlier version of this file sent an object
-// `rows_attributes: { "0": {...} }` with `package_type: "CTN"` and full
-// dimensions; Cargoson treated that as freight and returned 10x prices
-// with no DPD/Schenker. This version mirrors the working Python client:
-//
-//   - `rows_attributes` is an ARRAY
-//   - `package_type` defaults to "EUR" (europaleta) — the legacy system used this
-//     even for small parcels; Cargoson interprets the pair (EUR, weight) as a
-//     parcel-style lookup and returns consistent results
-//   - Only `quantity`, `package_type`, `weight` are sent per row
-//   - Authorization: Bearer, Accept: application/vnd.api.v1, URL /api/v1/…
+// Note on request shape:
+//   Cargoson returns DIFFERENT price sets for different payloads. This object
+//   form with `package_type: "CTN"` and full dimensions is the one known to
+//   work on this account — it gives the real carrier set (DHL, UPS, FedEx,
+//   DPD, Schenker, Raben) with realistic surcharges. Don't swap it to an
+//   array / EUR-pallet shape without re-verifying against a live account,
+//   because Cargoson will happily return 204 No Content or a short list.
 
-// Cargoson dropped the /v1/ URL segment at some point in 2026 — plain /api/
-// is the only working endpoint. The Python monitor used /api/v1/ but that
-// now returns 404.
 const CARGOSON_API_URL = "https://www.cargoson.com/api";
 
 export interface CargosonPriceRow {
-  quantity: number | string;
+  quantity: string;
   package_type: string;
-  weight: number | string;
+  weight: string;
+  length: string;
+  width: string;
+  height: string;
+  cbm?: string;
+  ldm?: string;
   description?: string;
 }
 
@@ -33,10 +28,7 @@ export interface CargosonPriceRequest {
   collection_country: string;
   delivery_postcode: string;
   delivery_country: string;
-  rows_attributes: CargosonPriceRow[];
-  adr?: boolean;
-  frigo?: boolean;
-  delivery_to_private_person?: boolean;
+  rows_attributes: { [key: string]: CargosonPriceRow };
 }
 
 export interface CargosonSurcharge {
@@ -78,18 +70,21 @@ export async function getFreightPrices(
     collection_postcode: params.collection_postcode,
     delivery_country: params.delivery_country,
     delivery_postcode: params.delivery_postcode,
-    adr: params.adr ?? false,
-    frigo: params.frigo ?? false,
-    delivery_to_private_person: params.delivery_to_private_person ?? false,
+    adr: false,
+    frigo: false,
+    delivery_to_private_person: false,
+    request_external_partners: true,
+    calculate_click: true,
     rows_attributes: params.rows_attributes,
+    options: { measurement_units: "metric" },
   };
 
   const response = await fetch(`${CARGOSON_API_URL}/freightPrices/list`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      Accept: "application/vnd.api.v1",
+      Authorization: `Token ${apiKey}`,
+      Accept: "application/json",
     },
     body: JSON.stringify(requestBody),
   });
@@ -110,6 +105,11 @@ export async function getFreightPrices(
   }
 
   return JSON.parse(text);
+}
+
+// Compute CBM from dimensions (cm³ → m³)
+export function calculateCBM(length: number, width: number, height: number): string {
+  return ((length * width * height) / 1_000_000).toFixed(6);
 }
 
 // Format date as DD.MM.YYYY (Cargoson's Polish format). Defaults to tomorrow

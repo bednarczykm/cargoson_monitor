@@ -72,15 +72,21 @@ export default function SettingsPage() {
     setSlackTestResult(null);
 
     try {
-      const res = await fetch("/api/notifications/test-slack", { method: "POST" });
+      const res = await fetch("/api/notifications/test-slack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Send whatever's currently in the form so the user can test without
+        // saving first. Backend falls back to DB if body is empty.
+        body: JSON.stringify({ slackWebhook: settings?.slackWebhook ?? "" }),
+      });
       const data = await res.json();
-      
+
       if (res.ok) {
         setSlackTestResult({ success: true, message: data.message || "Wysłano!" });
       } else {
         setSlackTestResult({ success: false, message: data.error || "Błąd" });
       }
-      
+
       // Refresh logs
       fetchLogs();
     } catch (error) {
