@@ -1,87 +1,99 @@
-const CARGOSON_API_URL = "https://www.cargoson.com/api";
+// Cargoson API client.
+//
+// IMPORTANT: match the request shape used by the old Python monitor
+// (python_scripts/monitor_prices.py), which is the only shape known to
+// return realistic prices + full carrier coverage (DPD, Schenker, etc.)
+// on this account. An earlier version of this file sent an object
+// `rows_attributes: { "0": {...} }` with `package_type: "CTN"` and full
+// dimensions; Cargoson treated that as freight and returned 10x prices
+// with no DPD/Schenker. This version mirrors the working Python client:
+//
+//   - `rows_attributes` is an ARRAY
+//   - `package_type` defaults to "EUR" (europaleta) — the legacy system used this
+//     even for small parcels; Cargoson interprets the pair (EUR, weight) as a
+//     parcel-style lookup and returns consistent results
+//   - Only `quantity`, `package_type`, `weight` are sent per row
+//   - Authorization: Bearer, Accept: application/vnd.api.v1, URL /api/v1/…
 
-interface CargosonPriceRequest {
+const CARGOSON_API_URL = "https://www.cargoson.com/api/v1";
+
+export interface CargosonPriceRow {
+  quantity: number | string;
+  package_type: string;
+  weight: number | string;
+  description?: string;
+}
+
+export interface CargosonPriceRequest {
   collection_date: string;
   collection_postcode: string;
   collection_country: string;
   delivery_postcode: string;
   delivery_country: string;
-  rows_attributes: {
-    [key: string]: {
-      quantity: string;
-      package_type: string;
-      weight: string;
-      length: string;
-      width: string;
-      height: string;
-      cbm?: string;
-      ldm?: string;
-      description?: string;
-    };
-  };
+  rows_attributes: CargosonPriceRow[];
+  adr?: boolean;
+  frigo?: boolean;
+  delivery_to_private_person?: boolean;
 }
 
-interface CargosonSurcharge {
+export interface CargosonSurcharge {
   identifier: string;
   name: string;
   amount: string;
 }
 
-interface CargosonPriceResponse {
+export interface CargosonPrice {
+  carrier: string;
+  service: string;
+  service_id?: number;
+  price: string;
+  currency?: string;
+  unit?: string;
+  type?: string;
+  surcharges?: CargosonSurcharge[];
+}
+
+export interface CargosonPriceResponse {
   status: number;
   object?: {
-    prices: {
-      carrier: string;
-      service: string;
-      service_id: number;
-      price: string;
-      currency: string;
-      unit: string;
-      type: string;
-      surcharges?: CargosonSurcharge[];
-    }[];
+    prices: CargosonPrice[];
   };
   error?: string;
 }
 
-export async function getFreightPrices(params: CargosonPriceRequest): Promise<CargosonPriceResponse> {
+export async function getFreightPrices(
+  params: CargosonPriceRequest,
+): Promise<CargosonPriceResponse> {
   const apiKey = process.env.CARGOSON_API_KEY;
   if (!apiKey) {
     throw new Error("CARGOSON_API_KEY not configured");
   }
 
-  // Extended request matching Cargoson API format
   const requestBody = {
     collection_date: params.collection_date,
     collection_country: params.collection_country,
     collection_postcode: params.collection_postcode,
     delivery_country: params.delivery_country,
     delivery_postcode: params.delivery_postcode,
-    adr: false,
-    frigo: false,
-    delivery_to_private_person: false,
-    request_external_partners: true,
-    calculate_click: true,
+    adr: params.adr ?? false,
+    frigo: params.frigo ?? false,
+    delivery_to_private_person: params.delivery_to_private_person ?? false,
     rows_attributes: params.rows_attributes,
-    options: { measurement_units: "metric" }
   };
 
   const response = await fetch(`${CARGOSON_API_URL}/freightPrices/list`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Token ${apiKey}`,
-      "Accept": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "application/vnd.api.v1",
     },
     body: JSON.stringify(requestBody),
   });
 
   // 204 No Content means no prices available for this route
   if (response.status === 204) {
-    return {
-      status: 204,
-      object: { prices: [] },
-    };
+    return { status: 204, object: { prices: [] } };
   }
 
   if (!response.ok) {
@@ -93,16 +105,17 @@ export async function getFreightPrices(params: CargosonPriceRequest): Promise<Ca
   if (!text) {
     return { status: 200, object: { prices: [] } };
   }
-  
+
   return JSON.parse(text);
 }
 
-// Format date as DD.MM.YYYY (required by Cargoson API)
+// Format date as DD.MM.YYYY (Cargoson's Polish format). Defaults to tomorrow
+// since same-day pickups are typically unavailable.
 export function formatCollectionDate(): string {
   const date = new Date();
   date.setDate(date.getDate() + 1);
-  const day = date.getDate().toString().padStart(2, '0');
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
   const year = date.getFullYear();
   return `${day}.${month}.${year}`;
 }

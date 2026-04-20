@@ -18,9 +18,6 @@ interface SyncRequest {
   overwrite?: boolean;          // if false, only create missing rows (default: false)
 }
 
-function cbm(l: number, w: number, h: number): string {
-  return ((l * w * h) / 1_000_000).toFixed(6);
-}
 
 export async function POST(req: Request) {
   try {
@@ -100,19 +97,15 @@ export async function POST(req: Request) {
           collection_country: collectionCountry,
           delivery_postcode: rep.postalCode,
           delivery_country: rep.country,
-          rows_attributes: {
-            "0": {
-              quantity: "1",
-              package_type: "CTN",
-              weight: String(KG),
-              length: String(L),
-              width: String(W),
-              height: String(H),
-              cbm: cbm(L, W, H),
-              ldm: "0",
+          // EUR pallet + weight — same shape as the legacy Python monitor.
+          rows_attributes: [
+            {
+              quantity: 1,
+              package_type: "EUR",
+              weight: KG,
               description: "Goods",
             },
-          },
+          ],
         });
 
         const prices = response?.object?.prices ?? [];
