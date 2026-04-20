@@ -15,7 +15,10 @@
 //   - Only `quantity`, `package_type`, `weight` are sent per row
 //   - Authorization: Bearer, Accept: application/vnd.api.v1, URL /api/v1/…
 
-const CARGOSON_API_URL = "https://www.cargoson.com/api/v1";
+// Cargoson dropped the /v1/ URL segment at some point in 2026 — plain /api/
+// is the only working endpoint. The Python monitor used /api/v1/ but that
+// now returns 404.
+const CARGOSON_API_URL = "https://www.cargoson.com/api";
 
 export interface CargosonPriceRow {
   quantity: number | string;
