@@ -29,6 +29,9 @@ export interface CargosonPriceRequest {
   delivery_postcode: string;
   delivery_country: string;
   rows_attributes: { [key: string]: CargosonPriceRow };
+  // Experimental toggles — set to false to try to widen the carrier set.
+  calculateClick?: boolean;             // default true
+  requestExternalPartners?: boolean;    // default true
 }
 
 export interface CargosonSurcharge {
@@ -73,8 +76,8 @@ export async function getFreightPrices(
     adr: false,
     frigo: false,
     delivery_to_private_person: false,
-    request_external_partners: true,
-    calculate_click: true,
+    request_external_partners: params.requestExternalPartners ?? true,
+    calculate_click: params.calculateClick ?? true,
     rows_attributes: params.rows_attributes,
     options: { measurement_units: "metric" },
   };

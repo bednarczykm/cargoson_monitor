@@ -17,6 +17,8 @@ interface SyncRequest {
   weight?: number;              // kg, default 2
   packageType?: string;         // Cargoson package_type, default "CTN". Try "PACKAGE" or "EUR" to
                                 // see which carriers (DHL Parcel, Raben, etc.) Cargoson returns.
+  calculateClick?: boolean;     // default true — toggle off to probe pricing from external partners
+  requestExternalPartners?: boolean; // default true
   overwrite?: boolean;          // if false, only create missing rows (default: false)
 }
 
@@ -100,6 +102,8 @@ export async function POST(req: Request) {
           collection_country: collectionCountry,
           delivery_postcode: rep.postalCode,
           delivery_country: rep.country,
+          calculateClick: body.calculateClick,
+          requestExternalPartners: body.requestExternalPartners,
           rows_attributes: {
             "0": {
               quantity: "1",
