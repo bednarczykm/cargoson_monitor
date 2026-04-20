@@ -88,9 +88,24 @@ export async function POST(req: Request) {
     const results: PriceResult[] = [];
     const errors: string[] = [];
 
-    // For each recipient and each dimension/weight combination
+    // Build the full (recipient × dimension) task list, then run them through
+    // a bounded concurrency pool so we don't sit serially on 70+ Cargoson
+    // calls. Cargoson tolerates ~10 parallel per-account; 8 is a safe cap.
+    const tasks: Array<{
+      recipient: typeof recipients[number];
+      dimKey: string;
+      dims: { length: number; width: number; height: number; weight: number };
+    }> = [];
     for (const recipient of recipients) {
       for (const [dimKey, dims] of uniqueDimensions) {
+        tasks.push({ recipient, dimKey, dims });
+      }
+    }
+
+    const CONCURRENCY = 8;
+
+    const runOne = async (task: typeof tasks[number]) => {
+      const { recipient, dimKey, dims } = task;
         try {
           const response = await getFreightPrices({
             collection_date: collectionDate,
@@ -201,8 +216,18 @@ export async function POST(req: Request) {
           const errMsg = error instanceof Error ? error.message : "Unknown error";
           errors.push(`${recipient.name} (${dimKey}): ${errMsg}`);
         }
+    };
+
+    // Simple concurrency-limited runner. Pull tasks off the queue until empty;
+    // start CONCURRENCY workers at once.
+    let taskCursor = 0;
+    const worker = async () => {
+      while (taskCursor < tasks.length) {
+        const i = taskCursor++;
+        await runOne(tasks[i]);
       }
-    }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
     // Check for price discrepancies and create alerts
     const tolerancePercent = settings?.tolerancePercent ?? 0;
