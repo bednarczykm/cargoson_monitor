@@ -205,8 +205,15 @@ export default function PriceListPage() {
     }
   };
 
-  // Get unique carriers and countries for filters
-  const uniqueCarriers = useMemo(() => [...new Set(items.map(i => i.carrier))].sort(), [items]);
+  // Get carriers and countries for filters. Carrier dropdown always shows
+  // the full CARGOSON_CARRIERS catalog plus anything extra already in the
+  // pricelist, so users can pick a carrier even when it has zero rows yet
+  // (e.g. to confirm DHL Parcel / Raben are missing).
+  const uniqueCarriers = useMemo(() => {
+    const fromCatalog = CARGOSON_CARRIERS.map((c) => c.name);
+    const fromItems = items.map((i) => i.carrier);
+    return Array.from(new Set([...fromCatalog, ...fromItems])).sort();
+  }, [items]);
   const uniqueCountries = useMemo(() => [...new Set(items.map(i => i.destinationCountry))].sort(), [items]);
 
   // Filter and sort items
