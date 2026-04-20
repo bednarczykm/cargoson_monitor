@@ -226,12 +226,14 @@ main()
 TS
 chown "$APP_USER":"$APP_USER" "$SEED_SCRIPT"
 
-# Build as the cargoson user — script lives in /tmp, not inline, so stdin stays clean
-BUILD_SCRIPT="/tmp/cargoson-build.sh"
-cat > "$BUILD_SCRIPT" <<'BUILD'
-#!/usr/bin/env bash
+# Build as the cargoson user — pipe the script via bash -s, no file on disk.
+sudo -u "$APP_USER" env \
+  HOME="/home/$APP_USER" \
+  ADMIN_EMAIL="$ADMIN_EMAIL" \
+  ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+  PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  bash -s <<'BUILDBASH'
 set -Eeuo pipefail
-export HOME="/home/cargoson"
 cd /opt/cargoson_monitor/nextjs_space
 
 echo "    [build] npm install"
@@ -248,18 +250,7 @@ npx tsx scripts/_seed-admin.ts
 
 echo "    [build] next build"
 npm run build
-BUILD
-chmod +x "$BUILD_SCRIPT"
-chown "$APP_USER":"$APP_USER" "$BUILD_SCRIPT"
-
-sudo -u "$APP_USER" env \
-  HOME="/home/$APP_USER" \
-  ADMIN_EMAIL="$ADMIN_EMAIL" \
-  ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-  PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-  bash "$BUILD_SCRIPT"
-
-rm -f "$BUILD_SCRIPT"
+BUILDBASH
 
 echo
 echo "==> 6/7  Installing systemd unit and starting the app"
