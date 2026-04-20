@@ -26,7 +26,9 @@ interface PriceResult {
   apiPrice: number;
   apiCurrency: string;
   apiPricePLN: number;
-  priceListPrice: number | null;
+  priceListPrice: number | null;       // raw native-currency value
+  priceListCurrency?: string;
+  priceListPricePLN?: number | null;   // converted to PLN
 }
 
 interface CheckResult {
@@ -84,17 +86,20 @@ export default function CheckPricesPage() {
       "Carrier",
       "Metoda wysylki",
       "Cena API",
-      "Waluta",
+      "Waluta API",
       "Cena API (PLN)",
-      "Cena z cennika (PLN)",
+      "Cena cennik (natywna)",
+      "Waluta cennika",
+      "Cena cennik (PLN)",
       "Roznica (PLN)",
     ];
 
     const csv = [
       headers.join(","),
       ...result.results.map((r) => {
-        const diff = r.apiPricePLN >= 0 && r.priceListPrice !== null
-          ? (r.apiPricePLN - r.priceListPrice).toFixed(2)
+        const listPLN = r.priceListPricePLN ?? null;
+        const diff = r.apiPricePLN >= 0 && listPLN !== null
+          ? (r.apiPricePLN - listPLN).toFixed(2)
           : "";
         return [
           r.recipientName,
@@ -110,6 +115,8 @@ export default function CheckPricesPage() {
           r.apiCurrency || "",
           r.apiPricePLN >= 0 ? r.apiPricePLN.toFixed(2) : "brak danych",
           r.priceListPrice !== null ? r.priceListPrice.toFixed(2) : "",
+          r.priceListCurrency || "",
+          listPLN !== null ? listPLN.toFixed(2) : "",
           diff,
         ]
           .map((v) => `"${v}"`)
@@ -252,9 +259,10 @@ export default function CheckPricesPage() {
                 <TableBody>
                   {result.results.map((r, i) => {
                     const hasApiPrice = r.apiPricePLN >= 0;
+                    const listPLN = r.priceListPricePLN ?? null;
                     const diff =
-                      hasApiPrice && r.priceListPrice !== null
-                        ? r.apiPricePLN - r.priceListPrice
+                      hasApiPrice && listPLN !== null
+                        ? r.apiPricePLN - listPLN
                         : null;
                     return (
                       <TableRow key={i}>
@@ -283,9 +291,18 @@ export default function CheckPricesPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          {r.priceListPrice !== null
-                            ? `${r.priceListPrice.toFixed(2)} PLN`
-                            : <span className="text-slate-400">-</span>}
+                          {listPLN !== null ? (
+                            <span>
+                              {listPLN.toFixed(2)} PLN
+                              {r.priceListCurrency && r.priceListCurrency !== "PLN" && r.priceListPrice !== null && (
+                                <span className="text-xs text-slate-400 block">
+                                  ({r.priceListPrice.toFixed(2)} {r.priceListCurrency})
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
                         </TableCell>
                         <TableCell
                           className={`text-right font-semibold ${

@@ -28,8 +28,9 @@ interface PriceResult {
   apiPrice: number;
   apiCurrency: string;
   apiPricePLN: number;
-  priceListPrice: number | null;
-  priceListCurrency?: string;
+  priceListPrice: number | null;       // raw value from DB (native currency)
+  priceListCurrency?: string;          // e.g. "EUR", "PLN"
+  priceListPricePLN?: number | null;   // priceListPrice converted to PLN — use this for comparisons
 }
 
 // Key for unique dimension/weight combination
@@ -143,6 +144,8 @@ export async function POST(req: Request) {
             );
 
             for (const priceItem of matchingPriceItems) {
+              const cur = (priceItem.currency || "PLN").toUpperCase();
+              const inPLN = cur === "EUR" ? priceItem.basePrice * EUR_TO_PLN : priceItem.basePrice;
               results.push({
                 recipientName: recipient.name,
                 street: recipient.street,
@@ -157,7 +160,8 @@ export async function POST(req: Request) {
                 apiCurrency: "N/A",
                 apiPricePLN: -1,
                 priceListPrice: priceItem.basePrice,
-                priceListCurrency: priceItem.currency || "PLN",
+                priceListCurrency: cur,
+                priceListPricePLN: Math.round(inPLN * 100) / 100,
               });
             }
           } else {
@@ -197,6 +201,10 @@ export async function POST(req: Request) {
                   p.weight === dims.weight
               );
 
+              const listCur = (matchingPriceItem?.currency || "PLN").toUpperCase();
+              const listInPLN = matchingPriceItem
+                ? (listCur === "EUR" ? matchingPriceItem.basePrice * EUR_TO_PLN : matchingPriceItem.basePrice)
+                : null;
               results.push({
                 recipientName: recipient.name,
                 street: recipient.street,
@@ -211,7 +219,9 @@ export async function POST(req: Request) {
                 apiCurrency,
                 apiPricePLN: Math.round(apiPricePLN * 100) / 100,
                 priceListPrice: matchingPriceItem?.basePrice ?? null,
-                priceListCurrency: matchingPriceItem?.currency || undefined,
+                priceListCurrency: matchingPriceItem ? listCur : undefined,
+                priceListPricePLN:
+                  listInPLN === null ? null : Math.round(listInPLN * 100) / 100,
               });
             }
           }
