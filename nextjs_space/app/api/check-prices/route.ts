@@ -247,15 +247,24 @@ export async function POST(req: Request) {
         continue;
       }
 
-      // priceListPrice is stored in its NATIVE currency (Schenker/DPD often
-      // EUR, DHL/UPS/FedEx PLN). Convert to PLN before comparing with
-      // apiPricePLN. Defaults to PLN when currency wasn't recorded.
-      const listCurrency = (result.priceListCurrency || "PLN").toUpperCase();
+      // Prefer the already-rounded priceListPricePLN from the result; fall
+      // back to converting on the fly if it's missing (legacy rows).
       const priceListPricePLN =
-        listCurrency === "EUR" ? result.priceListPrice * EUR_TO_PLN : result.priceListPrice;
+        result.priceListPricePLN != null
+          ? result.priceListPricePLN
+          : (result.priceListCurrency || "PLN").toUpperCase() === "EUR"
+            ? Math.round(result.priceListPrice * EUR_TO_PLN * 100) / 100
+            : result.priceListPrice;
 
-      const difference = result.apiPricePLN - priceListPricePLN;
+      if (!priceListPricePLN || priceListPricePLN <= 0) continue;
+
+      const rawDifference = result.apiPricePLN - priceListPricePLN;
+      const difference = Math.round(rawDifference * 100) / 100;
       const percentDiff = (difference / priceListPricePLN) * 100;
+
+      // Skip alerts that are ≤ 1 grosz — they're floating-point noise, not
+      // a real discrepancy (this is what was creating 0.00 PLN 'alerts').
+      if (Math.abs(difference) < 0.01) continue;
 
       // Check if difference exceeds tolerance (either direction)
       if (Math.abs(percentDiff) > tolerancePercent) {
@@ -270,7 +279,7 @@ export async function POST(req: Request) {
             carrier: `${result.carrier} - ${result.serviceMethod}`,
             apiPrice: result.apiPricePLN,
             priceListPrice: priceListPricePLN,
-            difference: Math.round(difference * 100) / 100,
+            difference, // already rounded above
             percentDiff: Math.round(percentDiff * 100) / 100,
           });
         }
