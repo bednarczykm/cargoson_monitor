@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AlertTriangle, Download, CheckCircle, Loader2, Filter, CheckCheck, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Download, CheckCircle, Loader2, Filter, CheckCheck, Trash2, X, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -20,6 +21,7 @@ interface Alert {
   checkDate: string;
   recipientName: string;
   city: string;
+  country: string | null;
   carrier: string;
   apiPrice: number;
   priceListPrice: number | null;
@@ -36,6 +38,12 @@ export default function AlertsPage() {
   const [resolvingAll, setResolvingAll] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Extra filters
+  const [filterCarrier, setFilterCarrier] = useState("");
+  const [filterCountry, setFilterCountry] = useState("");
+  const [filterMinDiff, setFilterMinDiff] = useState("");
+  const [filterDate, setFilterDate] = useState(""); // YYYY-MM-DD
 
   const fetchAlerts = async () => {
     try {
@@ -134,11 +142,48 @@ export default function AlertsPage() {
 
   const unresolvedCount = alerts.filter(a => a.status === "unresolved").length;
 
+  const uniqueCarriers = useMemo(
+    () => Array.from(new Set(alerts.map((a) => a.carrier))).sort(),
+    [alerts],
+  );
+  const uniqueCountries = useMemo(
+    () => Array.from(new Set(alerts.map((a) => a.country).filter((v): v is string => !!v))).sort(),
+    [alerts],
+  );
+
+  const filteredAlerts = useMemo(() => {
+    const minDiff = filterMinDiff ? parseFloat(filterMinDiff) : null;
+    const filterDateYmd = filterDate || null;
+    return alerts.filter((a) => {
+      if (filterCarrier && a.carrier !== filterCarrier) return false;
+      if (filterCountry && (a.country ?? "") !== filterCountry) return false;
+      if (minDiff !== null && Number.isFinite(minDiff)) {
+        const abs = Math.abs(a.difference ?? 0);
+        if (abs < minDiff) return false;
+      }
+      if (filterDateYmd) {
+        const created = new Date(a.createdAt);
+        const ymd = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}-${String(created.getDate()).padStart(2, "0")}`;
+        if (ymd !== filterDateYmd) return false;
+      }
+      return true;
+    });
+  }, [alerts, filterCarrier, filterCountry, filterMinDiff, filterDate]);
+
+  const anyExtraFilterActive = !!(filterCarrier || filterCountry || filterMinDiff || filterDate);
+  const clearExtraFilters = () => {
+    setFilterCarrier("");
+    setFilterCountry("");
+    setFilterMinDiff("");
+    setFilterDate("");
+  };
+
   const handleExport = () => {
     const headers = [
       "Data",
       "Odbiorca",
       "Miejscowość",
+      "Kraj",
       "Carrier",
       "Cena API",
       "Cena cennik",
@@ -148,11 +193,12 @@ export default function AlertsPage() {
 
     const csv = [
       headers.join(","),
-      ...alerts.map((a) =>
+      ...filteredAlerts.map((a) =>
         [
-          format(new Date(a.createdAt), "dd.MM.yyyy HH:mm", { locale: pl }),
+          format(new Date(a.createdAt), "dd.MM.yyyy", { locale: pl }),
           a.recipientName,
           a.city,
+          a.country ?? "",
           a.carrier,
           a.apiPrice.toFixed(2),
           a.priceListPrice?.toFixed(2) ?? "",
@@ -172,7 +218,7 @@ export default function AlertsPage() {
   };
 
   const formatDate = (dateStr: string) => {
-    return format(new Date(dateStr), "dd.MM.yyyy HH:mm", { locale: pl });
+    return format(new Date(dateStr), "dd.MM.yyyy", { locale: pl });
   };
 
   return (
@@ -221,22 +267,84 @@ export default function AlertsPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-600" />
-            Alerty ({alerts.length})
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-slate-400" />
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">Wszystkie</option>
-              <option value="unresolved">Nierozwiązane</option>
-              <option value="resolved">Rozwiązane</option>
-            </select>
+        <CardHeader className="flex flex-col gap-4">
+          <div className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              Alerty ({filteredAlerts.length}{filteredAlerts.length !== alerts.length ? ` z ${alerts.length}` : ""})
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-slate-400" />
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">Wszystkie</option>
+                <option value="unresolved">Nierozwiązane</option>
+                <option value="resolved">Rozwiązane</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-50 rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Carrier</span>
+              <select
+                value={filterCarrier}
+                onChange={(e) => setFilterCarrier(e.target.value)}
+                className="h-9 px-3 rounded-md border border-slate-300 text-sm bg-white min-w-[180px]"
+              >
+                <option value="">Wszyscy</option>
+                {uniqueCarriers.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Kraj</span>
+              <select
+                value={filterCountry}
+                onChange={(e) => setFilterCountry(e.target.value)}
+                className="h-9 px-3 rounded-md border border-slate-300 text-sm bg-white"
+              >
+                <option value="">Wszystkie</option>
+                {uniqueCountries.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Min. różnica</span>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="np. 10"
+                value={filterMinDiff}
+                onChange={(e) => setFilterMinDiff(e.target.value)}
+                className="w-28 h-9"
+              />
+              <span className="text-xs text-slate-400">PLN</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Data</span>
+              <Input
+                type="date"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="w-40 h-9"
+              />
+            </div>
+            {anyExtraFilterActive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearExtraFilters}
+                className="text-slate-500"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Wyczyść filtry
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -249,6 +357,11 @@ export default function AlertsPage() {
               <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-slate-300" />
               <p>Brak alertów</p>
             </div>
+          ) : filteredAlerts.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              <Search className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+              <p>Brak wyników dla wybranych filtrów</p>
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -256,6 +369,7 @@ export default function AlertsPage() {
                   <TableHead>Data</TableHead>
                   <TableHead>Odbiorca</TableHead>
                   <TableHead>Miejscowość</TableHead>
+                  <TableHead>Kraj</TableHead>
                   <TableHead>Carrier</TableHead>
                   <TableHead className="text-right">Cena API</TableHead>
                   <TableHead className="text-right">Cena cennik</TableHead>
@@ -265,13 +379,14 @@ export default function AlertsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {alerts.map((alert) => (
+                {filteredAlerts.map((alert) => (
                   <TableRow key={alert.id}>
-                    <TableCell className="text-sm">
+                    <TableCell className="text-sm whitespace-nowrap">
                       {formatDate(alert.createdAt)}
                     </TableCell>
                     <TableCell className="font-medium">{alert.recipientName}</TableCell>
                     <TableCell>{alert.city}</TableCell>
+                    <TableCell className="font-mono text-xs">{alert.country ?? "—"}</TableCell>
                     <TableCell>{alert.carrier}</TableCell>
                     <TableCell className="text-right font-semibold">
                       {alert.apiPrice.toFixed(2)} €

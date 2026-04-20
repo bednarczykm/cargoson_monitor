@@ -119,6 +119,7 @@ model Alert {
   recipientId    String
   recipientName  String
   city           String
+  country        String?  // ISO-2, e.g. "DE". Null on legacy rows (pre-2026-04-20).
   carrier        String
   apiPrice       Float
   priceListPrice Float?

@@ -23,6 +23,24 @@ export async function GET(req: Request) {
       take: 500,
     });
 
+    // Backfill country from Recipient for legacy rows (alerts created before
+    // 2026-04-20 didn't persist country). We do it here rather than via a DB
+    // migration so it's cheap and non-destructive.
+    const missingCountry = alerts.filter((a) => !a.country);
+    if (missingCountry.length > 0) {
+      const recipientIds = Array.from(new Set(missingCountry.map((a) => a.recipientId)));
+      const recipients = await prisma.recipient.findMany({
+        where: { id: { in: recipientIds } },
+        select: { id: true, country: true },
+      });
+      const idToCountry = new Map(recipients.map((r) => [r.id, r.country]));
+      for (const a of alerts) {
+        if (!a.country && idToCountry.has(a.recipientId)) {
+          a.country = idToCountry.get(a.recipientId) || null;
+        }
+      }
+    }
+
     return NextResponse.json(alerts);
   } catch (error) {
     console.error("Error fetching alerts:", error);

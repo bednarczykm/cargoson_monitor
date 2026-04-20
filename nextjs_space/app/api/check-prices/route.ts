@@ -238,6 +238,7 @@ export async function POST(req: Request) {
       recipientId: string;
       recipientName: string;
       city: string;
+      country: string;
       carrier: string;
       apiPrice: number;
       priceListPrice: number;
@@ -270,9 +271,10 @@ export async function POST(req: Request) {
             recipientId: recipient.id,
             recipientName: result.recipientName,
             city: result.city,
+            country: result.country,
             carrier: `${result.carrier} - ${result.serviceMethod}`,
             apiPrice: result.apiPricePLN,
-            priceListPrice: result.priceListPrice,
+            priceListPrice: priceListPricePLN,
             difference: Math.round(difference * 100) / 100,
             percentDiff: Math.round(percentDiff * 100) / 100,
           });
