@@ -79,15 +79,31 @@ export async function getFreightPrices(
     options: { measurement_units: "metric" },
   };
 
-  const response = await fetch(`${CARGOSON_API_URL}/freightPrices/list`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Token ${apiKey}`,
-      Accept: "application/json",
-    },
-    body: JSON.stringify(requestBody),
-  });
+  // Cap each Cargoson call at 25 s so one slow route can't block the whole
+  // batch (/api/check-prices runs 27+ calls in sequence).
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+
+  let response: Response;
+  try {
+    response = await fetch(`${CARGOSON_API_URL}/freightPrices/list`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Token ${apiKey}`,
+        Accept: "application/json",
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    clearTimeout(timeout);
+    if ((e as Error).name === "AbortError") {
+      throw new Error("Cargoson API timeout (25s)");
+    }
+    throw e;
+  }
+  clearTimeout(timeout);
 
   // 204 No Content means no prices available for this route
   if (response.status === 204) {

@@ -1,4 +1,8 @@
 export const dynamic = "force-dynamic";
+// Allow the check to run long enough to hit Cargoson for every active
+// recipient × dimension combination (currently ~27 calls @ 1–5s each).
+// Default Next.js Route Handler timeout is 10s which is too short.
+export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";

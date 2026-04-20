@@ -42,7 +42,24 @@ sudo -u "$APP_USER" -H bash -c "
   npm run build
 "
 
-# 3. Restart the app under systemd.
+# 3. Make sure nginx proxies long Cargoson-driven calls (default 60s is too
+#    short for /api/check-prices, which runs up to 27 API calls in series).
+NGINX_CONF="/etc/nginx/sites-available/cargoson"
+if [[ -f "$NGINX_CONF" ]] && ! grep -q 'proxy_read_timeout 300s' "$NGINX_CONF"; then
+  echo "patching nginx with 300s proxy timeouts..."
+  # Insert directives right after the proxy_pass line.
+  sed -i '/proxy_pass http:\/\/127\.0\.0\.1:/a\        proxy_read_timeout 300s;\n        proxy_send_timeout 300s;' \
+    "$NGINX_CONF"
+  if nginx -t 2>&1 | grep -q "syntax is ok"; then
+    systemctl reload nginx
+    echo "nginx reloaded"
+  else
+    echo "nginx -t failed, reverting change"
+    sed -i '/proxy_read_timeout 300s;/d; /proxy_send_timeout 300s;/d' "$NGINX_CONF"
+  fi
+fi
+
+# 4. Restart the app under systemd.
 systemctl restart cargoson.service
 sleep 2
 if systemctl is-active --quiet cargoson.service; then
