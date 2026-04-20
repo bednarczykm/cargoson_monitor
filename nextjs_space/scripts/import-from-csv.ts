@@ -18,6 +18,7 @@
  * Idempotent — re-running upserts the same keys.
  */
 
+import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
