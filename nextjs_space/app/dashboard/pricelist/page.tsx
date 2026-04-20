@@ -102,6 +102,12 @@ export default function PriceListPage() {
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Bulk delete + CSV import dialog state
+  const [deletingFiltered, setDeletingFiltered] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importReplaceAll, setImportReplaceAll] = useState(false);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+
   // Sync-from-API state
   const [showSync, setShowSync] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -391,10 +397,19 @@ export default function PriceListPage() {
     }
   };
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPendingImportFile(file);
+    setImportReplaceAll(false);
+    setShowImport(true);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
+  const runImport = async () => {
+    if (!pendingImportFile) return;
+    const file = pendingImportFile;
+    const replaceAll = importReplaceAll;
     setImporting(true);
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -414,21 +429,54 @@ export default function PriceListPage() {
         const res = await fetch("/api/pricelist/import", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data }),
+          body: JSON.stringify({ data, replaceAll }),
         });
 
         const result = await res.json();
-        alert(`Import zakończony: ${result.success} sukcesów, ${result.errors} błędów`);
+        alert(
+          `Import zakończony: ${result.success} sukcesów, ${result.errors} błędów` +
+          (result.deleted ? `, ${result.deleted} pozycji usunięto (nie było w pliku)` : ""),
+        );
+        setShowImport(false);
+        setPendingImportFile(null);
+        setImportReplaceAll(false);
         fetchItems();
       } catch (error) {
         console.error("Import error:", error);
         alert("Błąd importu pliku");
       } finally {
         setImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleDeleteFiltered = async () => {
+    const count = filteredItems.length;
+    const allSelected = count === items.length;
+    const label = allSelected ? `WSZYSTKIE ${count} pozycji cennika` : `${count} pozycji (aktualne filtry)`;
+    if (!confirm(`Czy na pewno chcesz TRWALE SKASOWAĆ ${label}? Tego nie da się cofnąć.`)) return;
+    setDeletingFiltered(true);
+    try {
+      const res = await fetch("/api/pricelist", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          allSelected ? { scope: "all" } : { ids: filteredItems.map((i) => i.id) },
+        ),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Skasowano ${data.deleted} pozycji`);
+        fetchItems();
+      } else {
+        alert(data.error || "Błąd");
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+    } finally {
+      setDeletingFiltered(false);
+    }
   };
 
   const handleExport = () => {
@@ -480,7 +528,7 @@ export default function PriceListPage() {
           <input
             type="file"
             accept=".csv"
-            onChange={handleImport}
+            onChange={handleFilePicked}
             ref={fileInputRef}
             className="hidden"
           />
@@ -513,6 +561,52 @@ export default function PriceListPage() {
           </Button>
         </div>
       </div>
+
+      {showImport && pendingImportFile && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5 text-blue-600" />
+              Import CSV: {pendingImportFile.name}
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => { setShowImport(false); setPendingImportFile(null); }}
+              disabled={importing}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <Checkbox
+                checked={importReplaceAll}
+                onCheckedChange={(v) => setImportReplaceAll(v === true)}
+                className="mt-1"
+              />
+              <span className="text-sm text-slate-700">
+                <strong>Zastąp cały cennik</strong> — wszystko co nie jest w pliku CSV zostanie skasowane po imporcie.
+                <div className="text-xs text-slate-500 mt-1">
+                  Bez zaznaczenia: tylko dodaję nowe pozycje i aktualizuję istniejące (bezpieczny merge).
+                </div>
+              </span>
+            </label>
+            <div className="flex items-center gap-3">
+              <Button onClick={runImport} disabled={importing} className="bg-blue-600 hover:bg-blue-700">
+                {importing ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Importuję…</>
+                ) : (
+                  <><Upload className="mr-2 h-4 w-4" /> Uruchom import</>
+                )}
+              </Button>
+              <Button variant="outline" onClick={() => { setShowImport(false); setPendingImportFile(null); }} disabled={importing}>
+                Anuluj
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {showSync && (
         <Card>
@@ -913,6 +1007,20 @@ export default function PriceListPage() {
               >
                 <ToggleLeft className="h-4 w-4 mr-1" />
                 Wyłącz ({filteredItems.length})
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDeleteFiltered}
+                disabled={filteredItems.length === 0 || deletingFiltered}
+                className="text-red-600 border-red-300 hover:bg-red-50"
+              >
+                {deletingFiltered ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4 mr-1" />
+                )}
+                Kasuj ({filteredItems.length})
               </Button>
             </div>
           </div>

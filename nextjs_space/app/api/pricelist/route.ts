@@ -23,6 +23,40 @@ export async function GET() {
   }
 }
 
+// Bulk delete pricelist rows by id list (UI passes currently-filtered items).
+export async function DELETE(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown) => typeof x === "string") : null;
+    const scope = body?.scope as string | undefined;
+
+    if (scope === "all") {
+      const del = await prisma.priceListItem.deleteMany({});
+      return NextResponse.json({ success: true, deleted: del.count });
+    }
+
+    if (!ids || ids.length === 0) {
+      return NextResponse.json(
+        { error: "Pass either { scope: 'all' } or { ids: [...] }" },
+        { status: 400 },
+      );
+    }
+
+    const del = await prisma.priceListItem.deleteMany({
+      where: { id: { in: ids } },
+    });
+    return NextResponse.json({ success: true, deleted: del.count });
+  } catch (error) {
+    console.error("Error bulk-deleting pricelist:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
