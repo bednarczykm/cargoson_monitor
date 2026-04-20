@@ -55,7 +55,7 @@ touch "$LOG_FILE"
 chmod 600 "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-trap 'rc=$?; echo; echo "ERROR: installer failed at line ${BASH_LINENO[0]} (exit=$rc). Full log: $LOG_FILE" >&2' ERR
+trap 'rc=$?; ln="${BASH_LINENO[0]:-?}"; echo; echo "ERROR: installer failed at line ${ln} (exit=${rc}). Full log: $LOG_FILE" >&2' ERR
 
 echo
 echo "=================================================="
@@ -113,12 +113,12 @@ if [[ -f "$DB_PASS_FILE" ]]; then
   DB_PASS=$(cat "$DB_PASS_FILE")
 else
   DB_PASS=$(openssl rand -hex 24)
-  umask 077
-  echo -n "$DB_PASS" > "$DB_PASS_FILE"
+  ( umask 077; echo -n "$DB_PASS" > "$DB_PASS_FILE" )
   chmod 600 "$DB_PASS_FILE"
 fi
 
 PG_SCRIPT=$(mktemp --suffix=.sql)
+chmod 644 "$PG_SCRIPT"   # psql runs as postgres user and must read this file
 cat > "$PG_SCRIPT" <<SQL
 DO \$\$
 BEGIN
@@ -145,8 +145,7 @@ if [[ -f "$NEXTAUTH_SECRET_FILE" ]]; then
   NEXTAUTH_SECRET=$(cat "$NEXTAUTH_SECRET_FILE")
 else
   NEXTAUTH_SECRET=$(openssl rand -base64 32 | tr -d '\n')
-  umask 077
-  echo -n "$NEXTAUTH_SECRET" > "$NEXTAUTH_SECRET_FILE"
+  ( umask 077; echo -n "$NEXTAUTH_SECRET" > "$NEXTAUTH_SECRET_FILE" )
   chmod 600 "$NEXTAUTH_SECRET_FILE"
 fi
 
@@ -164,8 +163,7 @@ else
     exit 1
   fi
   ADMIN_PASSWORD="${RAW:0:4}-${RAW:4:4}-${RAW:8:4}-${RAW:12:4}"
-  umask 077
-  echo -n "$ADMIN_PASSWORD" > "$ADMIN_PASS_FILE"
+  ( umask 077; echo -n "$ADMIN_PASSWORD" > "$ADMIN_PASS_FILE" )
   chmod 600 "$ADMIN_PASS_FILE"
   PASSWORD_IS_NEW=1
 fi
