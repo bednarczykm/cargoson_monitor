@@ -29,6 +29,7 @@ interface PriceResult {
   apiCurrency: string;
   apiPricePLN: number;
   priceListPrice: number | null;
+  priceListCurrency?: string;
 }
 
 // Key for unique dimension/weight combination
@@ -156,6 +157,7 @@ export async function POST(req: Request) {
                 apiCurrency: "N/A",
                 apiPricePLN: -1,
                 priceListPrice: priceItem.basePrice,
+                priceListCurrency: priceItem.currency || "PLN",
               });
             }
           } else {
@@ -209,6 +211,7 @@ export async function POST(req: Request) {
                 apiCurrency,
                 apiPricePLN: Math.round(apiPricePLN * 100) / 100,
                 priceListPrice: matchingPriceItem?.basePrice ?? null,
+                priceListCurrency: matchingPriceItem?.currency || undefined,
               });
             }
           }
@@ -248,8 +251,15 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const difference = result.apiPricePLN - result.priceListPrice;
-      const percentDiff = (difference / result.priceListPrice) * 100;
+      // priceListPrice is stored in its NATIVE currency (Schenker/DPD often
+      // EUR, DHL/UPS/FedEx PLN). Convert to PLN before comparing with
+      // apiPricePLN. Defaults to PLN when currency wasn't recorded.
+      const listCurrency = (result.priceListCurrency || "PLN").toUpperCase();
+      const priceListPricePLN =
+        listCurrency === "EUR" ? result.priceListPrice * EUR_TO_PLN : result.priceListPrice;
+
+      const difference = result.apiPricePLN - priceListPricePLN;
+      const percentDiff = (difference / priceListPricePLN) * 100;
 
       // Check if difference exceeds tolerance (either direction)
       if (Math.abs(percentDiff) > tolerancePercent) {
