@@ -78,7 +78,7 @@ interface SyncResult {
 type SortKey = "dimensions" | "weight" | "carrier" | "serviceMethod" | "destinationCountry" | "basePrice";
 type SortDir = "asc" | "desc";
 
-const TEMPLATE_HEADERS = ["Wymiary paczki (DxSxW cm)", "Waga (kg)", "Carrier", "Metoda wysyłki", "Kraj docelowy", "Cena bazowa (PLN)"];
+const TEMPLATE_HEADERS = ["Wymiary paczki (DxSxW cm)", "Waga (kg)", "Carrier", "Metoda wysyłki", "Kraj docelowy", "Cena bazowa", "Waluta"];
 
 export default function PriceListPage() {
   const [items, setItems] = useState<PriceItem[]>([]);
@@ -94,6 +94,7 @@ export default function PriceListPage() {
     serviceMethod: "",
     destinationCountry: "",
     basePrice: "",
+    currency: "PLN",
   });
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -309,7 +310,7 @@ export default function PriceListPage() {
       if (res.ok) {
         setShowForm(false);
         setEditingId(null);
-        setFormData({ length: "", width: "", height: "", weight: "", carrier: "", serviceMethod: "", destinationCountry: "", basePrice: "" });
+        setFormData({ length: "", width: "", height: "", weight: "", carrier: "", serviceMethod: "", destinationCountry: "", basePrice: "", currency: "PLN" });
         fetchItems();
       }
     } catch (error) {
@@ -329,6 +330,7 @@ export default function PriceListPage() {
       serviceMethod: item.serviceMethod || "",
       destinationCountry: item.destinationCountry,
       basePrice: item.basePrice.toString(),
+      currency: item.currency || "PLN",
     });
     setEditingId(item.id);
     setShowForm(true);
@@ -431,6 +433,7 @@ export default function PriceListPage() {
           item.serviceMethod || "Standard",
           item.destinationCountry,
           item.basePrice,
+          item.currency || "PLN",
         ]
           .map((v) => `"${v}"`)
           .join(",")
@@ -725,14 +728,14 @@ export default function PriceListPage() {
               onClick={() => {
                 setShowForm(false);
                 setEditingId(null);
-                setFormData({ length: "", width: "", height: "", weight: "", carrier: "", serviceMethod: "", destinationCountry: "", basePrice: "" });
+                setFormData({ length: "", width: "", height: "", weight: "", carrier: "", serviceMethod: "", destinationCountry: "", basePrice: "", currency: "PLN" });
               }}
             >
               <X className="h-4 w-4" />
             </Button>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4">
+            <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-4">
               <Input
                 type="number"
                 placeholder="Długość (cm)"
@@ -788,11 +791,22 @@ export default function PriceListPage() {
               <Input
                 type="number"
                 step="0.01"
-                placeholder="Cena (PLN)"
+                placeholder="Cena"
                 value={formData.basePrice}
                 onChange={(e) => setFormData({ ...formData, basePrice: e.target.value })}
                 required
               />
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={formData.currency}
+                onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+              >
+                <option value="PLN">PLN</option>
+                <option value="EUR">EUR</option>
+                <option value="USD">USD</option>
+                <option value="GBP">GBP</option>
+                <option value="CHF">CHF</option>
+              </select>
               <Button type="submit" disabled={saving}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Zapisz"}
               </Button>
@@ -945,12 +959,12 @@ export default function PriceListPage() {
                         <SortIcon columnKey="destinationCountry" />
                       </span>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-100 select-none"
                       onClick={() => handleSort("basePrice")}
                     >
                       <span className="flex items-center">
-                        Cena (PLN)
+                        Cena
                         <SortIcon columnKey="basePrice" />
                       </span>
                     </TableHead>
@@ -977,8 +991,11 @@ export default function PriceListPage() {
                         {item.serviceMethod || "Standard"}
                       </TableCell>
                       <TableCell>{item.destinationCountry}</TableCell>
-                      <TableCell className="font-semibold text-emerald-600">
+                      <TableCell className="font-semibold text-emerald-600 whitespace-nowrap">
                         {item.basePrice.toFixed(2)}
+                        <span className="ml-1 text-xs font-normal text-slate-500">
+                          {item.currency || "PLN"}
+                        </span>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>

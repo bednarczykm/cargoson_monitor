@@ -30,7 +30,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { length, width, height, weight, carrier, serviceMethod, destinationCountry, basePrice } = await req.json();
+    const { length, width, height, weight, carrier, serviceMethod, destinationCountry, basePrice, currency } = await req.json();
 
     if (!length || !width || !height || !weight || !carrier || !destinationCountry || basePrice === undefined) {
       return NextResponse.json(
@@ -49,6 +49,8 @@ export async function POST(req: Request) {
         serviceMethod: serviceMethod || "Standard",
         destinationCountry: destinationCountry.toUpperCase(),
         basePrice: parseFloat(basePrice),
+        currency: (currency || "PLN").toUpperCase(),
+        source: "manual",
       },
     });
 

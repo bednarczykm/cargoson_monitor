@@ -12,7 +12,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { length, width, height, weight, carrier, serviceMethod, destinationCountry, basePrice, isActive } = await req.json();
+    const { length, width, height, weight, carrier, serviceMethod, destinationCountry, basePrice, currency, isActive } = await req.json();
 
     const item = await prisma.priceListItem.update({
       where: { id: params.id },
@@ -25,6 +25,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
         serviceMethod: serviceMethod || "Standard",
         destinationCountry: destinationCountry.toUpperCase(),
         basePrice: parseFloat(basePrice),
+        ...(currency !== undefined && { currency: (currency || "PLN").toUpperCase() }),
         isActive: isActive !== undefined ? isActive : true,
       },
     });
