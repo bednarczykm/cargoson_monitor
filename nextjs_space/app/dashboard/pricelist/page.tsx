@@ -59,6 +59,17 @@ interface SyncResult {
   skipped: number;
   errors: string[];
   perCountry: { country: string; fetched: number; saved: number }[];
+  debugSamples?: {
+    country: string;
+    rawCarrier: string;
+    service: string;
+    normalizedCarrier: string;
+    price: string;
+    currency: string;
+    transportPrice: string | null;
+    carrierFilterMatched: boolean;
+    savedAs: string;
+  }[];
   dimensions: string;
   carriersFiltered: string[];
   countriesProcessed: string[];
@@ -652,6 +663,47 @@ export default function PriceListPage() {
                       <ul className="mt-1 text-xs text-amber-800 list-disc ml-5 space-y-0.5">
                         {syncResult.errors.map((e, i) => <li key={i}>{e}</li>)}
                       </ul>
+                    </details>
+                  )}
+                  {syncResult.debugSamples && syncResult.debugSamples.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-slate-600 hover:text-slate-900">
+                        Podgląd odpowiedzi API ({syncResult.debugSamples.length} wierszy) — pokaż co zwrócił Cargoson
+                      </summary>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="text-xs w-full">
+                          <thead>
+                            <tr className="border-b text-slate-600">
+                              <th className="text-left px-2 py-1">kraj</th>
+                              <th className="text-left px-2 py-1">carrier (API)</th>
+                              <th className="text-left px-2 py-1">→ znormalizowany</th>
+                              <th className="text-left px-2 py-1">usługa</th>
+                              <th className="text-right px-2 py-1">price</th>
+                              <th className="text-right px-2 py-1">transport</th>
+                              <th className="text-left px-2 py-1">waluta</th>
+                              <th className="text-left px-2 py-1">filter</th>
+                              <th className="text-left px-2 py-1">wynik</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {syncResult.debugSamples.map((d, i) => (
+                              <tr key={i} className="border-b border-slate-100">
+                                <td className="px-2 py-1 font-mono">{d.country}</td>
+                                <td className="px-2 py-1">{d.rawCarrier}</td>
+                                <td className="px-2 py-1">{d.normalizedCarrier}</td>
+                                <td className="px-2 py-1 text-slate-500">{d.service}</td>
+                                <td className="px-2 py-1 text-right font-mono">{d.price || "—"}</td>
+                                <td className="px-2 py-1 text-right font-mono">{d.transportPrice ?? "—"}</td>
+                                <td className="px-2 py-1">{d.currency}</td>
+                                <td className="px-2 py-1">{d.carrierFilterMatched ? "✓" : "✗"}</td>
+                                <td className={`px-2 py-1 font-medium ${d.savedAs.startsWith("rejected") ? "text-red-600" : d.savedAs === "added" ? "text-emerald-700" : d.savedAs === "updated" ? "text-blue-700" : "text-slate-500"}`}>
+                                  {d.savedAs}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </details>
                   )}
                 </div>

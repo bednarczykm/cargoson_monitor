@@ -77,6 +77,19 @@ export async function POST(req: Request) {
     let skipped = 0;
     const errors: string[] = [];
     const perCountry: { country: string; fetched: number; saved: number }[] = [];
+    // Debug: capture a sample of raw API responses so the UI can show what
+    // the Cargoson endpoint actually returned (helps diagnose "0 saved" cases).
+    const debugSamples: {
+      country: string;
+      rawCarrier: string;
+      service: string;
+      normalizedCarrier: string;
+      price: string;
+      currency: string;
+      transportPrice: string | null;
+      carrierFilterMatched: boolean;
+      savedAs: "added" | "updated" | "skipped" | "rejected:no-price";
+    }[] = [];
 
     for (const cc of countriesToSync) {
       const rep = byCountry.get(cc)!;
@@ -111,24 +124,48 @@ export async function POST(req: Request) {
           const serviceMethod = price.service || "Standard";
           const currency = (price.currency || "PLN").toUpperCase();
 
-          // If user restricted carriers, skip those not on the list
-          if (
-            carrierFilter.size > 0 &&
-            !carrierFilter.has(carrier.toLowerCase()) &&
-            !Array.from(carrierFilter).some((c) => carrierNamesMatch(c, carrier))
-          ) {
-            continue;
-          }
-
-          // Prefer "transport_price" surcharge as base, fall back to total price
+          // Prefer "transport_price" surcharge as base, fall back to total price.
+          // If both are empty/zero we keep the row with basePrice=0 instead of
+          // dropping it silently (that gave us the "0 saved" surprise earlier).
           const surcharges = price.surcharges ?? [];
           const transport = surcharges.find(
             (s) => s.identifier === "transport_price",
           );
-          const rawPrice = parseFloat(
-            (transport?.amount ?? price.price ?? "0").replace(",", "."),
-          );
-          if (!Number.isFinite(rawPrice) || rawPrice <= 0) continue;
+          const transportAmt = transport?.amount;
+          const chosen =
+            transportAmt && transportAmt !== "0" && transportAmt !== ""
+              ? transportAmt
+              : price.price ?? "0";
+          const rawPrice = parseFloat((chosen || "0").replace(",", "."));
+          const priceValid = Number.isFinite(rawPrice);
+
+          // If user restricted carriers, skip those not on the list
+          const carrierMatches =
+            carrierFilter.size === 0 ||
+            carrierFilter.has(carrier.toLowerCase()) ||
+            Array.from(carrierFilter).some((c) =>
+              carrierNamesMatch(c, carrier),
+            );
+
+          if (debugSamples.length < 40) {
+            debugSamples.push({
+              country: cc,
+              rawCarrier,
+              service: serviceMethod,
+              normalizedCarrier: carrier,
+              price: price.price ?? "",
+              currency,
+              transportPrice: transportAmt ?? null,
+              carrierFilterMatched: carrierMatches,
+              savedAs: "skipped", // overwritten below if/when saved
+            });
+          }
+
+          if (!carrierMatches) continue;
+          if (!priceValid) {
+            debugSamples[debugSamples.length - 1].savedAs = "rejected:no-price";
+            continue;
+          }
 
           const existing = await prisma.priceListItem.findUnique({
             where: {
@@ -147,6 +184,8 @@ export async function POST(req: Request) {
 
           if (existing && !overwrite) {
             skipped++;
+            if (debugSamples.length > 0)
+              debugSamples[debugSamples.length - 1].savedAs = "skipped";
             continue;
           }
 
@@ -162,6 +201,8 @@ export async function POST(req: Request) {
               },
             });
             updated++;
+            if (debugSamples.length > 0)
+              debugSamples[debugSamples.length - 1].savedAs = "updated";
           } else {
             await prisma.priceListItem.create({
               data: {
@@ -180,6 +221,8 @@ export async function POST(req: Request) {
               },
             });
             added++;
+            if (debugSamples.length > 0)
+              debugSamples[debugSamples.length - 1].savedAs = "added";
           }
           savedThisCountry++;
         }
@@ -202,6 +245,7 @@ export async function POST(req: Request) {
       skipped,
       errors,
       perCountry,
+      debugSamples,
       dimensions: `${L}x${W}x${H} cm, ${KG} kg`,
       carriersFiltered: Array.from(carrierFilter),
       countriesProcessed: countriesToSync,
