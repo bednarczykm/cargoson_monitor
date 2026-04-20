@@ -70,6 +70,8 @@ interface SyncResult {
     carrierFilterMatched: boolean;
     savedAs: string;
   }[];
+  detectedCarriers?: string[];
+  missingRequestedCarriers?: string[];
   dimensions: string;
   carriersFiltered: string[];
   countriesProcessed: string[];
@@ -651,6 +653,20 @@ export default function PriceListPage() {
                 <div className="text-sm text-slate-700 space-y-1">
                   <div>Dodane: <strong>{syncResult.added}</strong> · Zaktualizowane: <strong>{syncResult.updated}</strong> · Pominięte: <strong>{syncResult.skipped}</strong></div>
                   <div className="text-xs text-slate-500">{syncResult.dimensions}</div>
+                  {syncResult.missingRequestedCarriers && syncResult.missingRequestedCarriers.length > 0 && (
+                    <div className="mt-2 p-2 rounded border border-amber-300 bg-amber-100 text-xs text-amber-900">
+                      <strong>Cargoson nie zwrócił wybranych przewoźników:</strong>{" "}
+                      {syncResult.missingRequestedCarriers.join(", ")}.
+                      <div className="mt-1 text-amber-800">
+                        API Cargosona (<code>/freightPrices/list</code>) prawdopodobnie nie ma tych umów aktywnych dla tego konta — skontaktuj się z supportem Cargoson albo dodaj pozycje ręcznie.
+                      </div>
+                    </div>
+                  )}
+                  {syncResult.detectedCarriers && syncResult.detectedCarriers.length > 0 && (
+                    <div className="text-xs text-slate-500 mt-1">
+                      Zwróceni przez API: {syncResult.detectedCarriers.join(", ")}
+                    </div>
+                  )}
                   {syncResult.perCountry.length > 0 && (
                     <details className="mt-2">
                       <summary className="cursor-pointer text-xs text-slate-600 hover:text-slate-900">

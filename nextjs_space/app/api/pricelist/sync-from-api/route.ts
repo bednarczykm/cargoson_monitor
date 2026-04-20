@@ -243,6 +243,18 @@ export async function POST(req: Request) {
       }
     }
 
+    // If the user picked specific carriers and Cargoson never returned some
+    // of them across ALL queried countries, flag that clearly in the UI.
+    const detectedLower = new Set(
+      debugSamples.map((s) => s.normalizedCarrier.toLowerCase()),
+    );
+    const missingRequestedCarriers = Array.from(carrierFilter).filter(
+      (c) => !detectedLower.has(c),
+    );
+    const detectedCarriers = Array.from(
+      new Set(debugSamples.map((s) => s.normalizedCarrier)),
+    ).sort();
+
     return NextResponse.json({
       added,
       updated,
@@ -250,6 +262,8 @@ export async function POST(req: Request) {
       errors,
       perCountry,
       debugSamples,
+      detectedCarriers,
+      missingRequestedCarriers,
       dimensions: `${L}x${W}x${H} cm, ${KG} kg`,
       packageType: PKG,
       carriersFiltered: Array.from(carrierFilter),
