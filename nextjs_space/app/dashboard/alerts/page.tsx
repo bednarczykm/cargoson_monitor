@@ -389,10 +389,10 @@ export default function AlertsPage() {
                     <TableCell className="font-mono text-xs">{alert.country ?? "—"}</TableCell>
                     <TableCell>{alert.carrier}</TableCell>
                     <TableCell className="text-right font-semibold">
-                      {alert.apiPrice.toFixed(2)} €
+                      {alert.apiPrice.toFixed(2)} PLN
                     </TableCell>
                     <TableCell className="text-right">
-                      {alert.priceListPrice?.toFixed(2) ?? "-"} €
+                      {alert.priceListPrice?.toFixed(2) ?? "-"} PLN
                     </TableCell>
                     <TableCell
                       className={`text-right font-semibold ${
@@ -400,7 +400,7 @@ export default function AlertsPage() {
                       }`}
                     >
                       {alert.difference !== null
-                        ? `${alert.difference > 0 ? "+" : ""}${alert.difference.toFixed(2)} €`
+                        ? `${alert.difference > 0 ? "+" : ""}${alert.difference.toFixed(2)} PLN`
                         : "-"}
                     </TableCell>
                     <TableCell>
