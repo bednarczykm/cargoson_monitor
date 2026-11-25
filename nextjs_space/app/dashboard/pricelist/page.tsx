@@ -21,6 +21,7 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
+  History,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CARGOSON_CARRIERS } from "@/lib/carriers";
+import { PriceHistoryDialog, PriceSinceCell } from "@/components/price-history";
 import {
   Table,
   TableBody,
@@ -51,6 +53,8 @@ interface PriceItem {
   source?: string;
   lastSyncedAt?: string | null;
   isActive: boolean;
+  priceSince?: string;
+  priceSinceApprox?: boolean;
 }
 
 interface SyncResult {
@@ -77,7 +81,7 @@ interface SyncResult {
   countriesProcessed: string[];
 }
 
-type SortKey = "dimensions" | "weight" | "carrier" | "serviceMethod" | "destinationCountry" | "basePrice";
+type SortKey = "dimensions" | "weight" | "carrier" | "serviceMethod" | "destinationCountry" | "basePrice" | "priceSince";
 type SortDir = "asc" | "desc";
 
 const TEMPLATE_HEADERS = ["Wymiary paczki (DxSxW cm)", "Waga (kg)", "Carrier", "Metoda wysyłki", "Kraj docelowy", "Cena bazowa", "Waluta"];
@@ -129,6 +133,7 @@ export default function PriceListPage() {
   const [filterCountry, setFilterCountry] = useState("");
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [historyItem, setHistoryItem] = useState<PriceItem | null>(null);
 
   const fetchItems = async () => {
     try {
@@ -278,6 +283,10 @@ export default function PriceListPage() {
           case "basePrice":
             valA = a.basePrice;
             valB = b.basePrice;
+            break;
+          case "priceSince":
+            valA = a.priceSince ? new Date(a.priceSince).getTime() : 0;
+            valB = b.priceSince ? new Date(b.priceSince).getTime() : 0;
             break;
           default:
             return 0;
@@ -1099,6 +1108,16 @@ export default function PriceListPage() {
                         <SortIcon columnKey="basePrice" />
                       </span>
                     </TableHead>
+                    <TableHead
+                      className="cursor-pointer hover:bg-slate-100 select-none"
+                      onClick={() => handleSort("priceSince")}
+                      title="Od kiedy obowiązuje obecna kwota. „≈” = data przybliżona (pozycja sprzed włączenia historii cen)."
+                    >
+                      <span className="flex items-center">
+                        Cena od
+                        <SortIcon columnKey="priceSince" />
+                      </span>
+                    </TableHead>
                     <TableHead className="text-right">Akcje</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1128,7 +1147,19 @@ export default function PriceListPage() {
                           {item.currency || "PLN"}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-sm">
+                        <PriceSinceCell item={item} />
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setHistoryItem(item)}
+                          title="Historia ceny"
+                          aria-label="Historia ceny"
+                        >
+                          <History className="h-4 w-4 text-slate-500" />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -1144,6 +1175,8 @@ export default function PriceListPage() {
           )}
         </CardContent>
       </Card>
+
+      <PriceHistoryDialog item={historyItem} onClose={() => setHistoryItem(null)} />
     </div>
   );
 }

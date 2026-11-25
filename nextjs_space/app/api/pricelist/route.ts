@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 import { prisma } from "@/lib/db";
+import { createdEntry, deleteItemsWithHistory, priceSince, sessionEmail } from "@/lib/price-history";
 
 export async function GET() {
   try {
@@ -16,7 +17,7 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(items);
+    return NextResponse.json(items.map((i) => ({ ...i, ...priceSince(i) })));
   } catch (error) {
     console.error("Error fetching pricelist:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
@@ -35,9 +36,13 @@ export async function DELETE(req: Request) {
     const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown) => typeof x === "string") : null;
     const scope = body?.scope as string | undefined;
 
+    const who = sessionEmail(session);
+
     if (scope === "all") {
-      const del = await prisma.priceListItem.deleteMany({});
-      return NextResponse.json({ success: true, deleted: del.count });
+      const deleted = await prisma.$transaction((tx) =>
+        deleteItemsWithHistory(tx, {}, "manual", who),
+      );
+      return NextResponse.json({ success: true, deleted });
     }
 
     if (!ids || ids.length === 0) {
@@ -47,10 +52,10 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const del = await prisma.priceListItem.deleteMany({
-      where: { id: { in: ids } },
-    });
-    return NextResponse.json({ success: true, deleted: del.count });
+    const deleted = await prisma.$transaction((tx) =>
+      deleteItemsWithHistory(tx, { id: { in: ids } }, "manual", who),
+    );
+    return NextResponse.json({ success: true, deleted });
   } catch (error) {
     console.error("Error bulk-deleting pricelist:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
@@ -73,19 +78,24 @@ export async function POST(req: Request) {
       );
     }
 
-    const item = await prisma.priceListItem.create({
-      data: {
-        length: parseFloat(length),
-        width: parseFloat(width),
-        height: parseFloat(height),
-        weight: parseFloat(weight),
-        carrier,
-        serviceMethod: serviceMethod || "Standard",
-        destinationCountry: destinationCountry.toUpperCase(),
-        basePrice: parseFloat(basePrice),
-        currency: (currency || "PLN").toUpperCase(),
-        source: "manual",
-      },
+    const item = await prisma.$transaction(async (tx) => {
+      const created = await tx.priceListItem.create({
+        data: {
+          length: parseFloat(length),
+          width: parseFloat(width),
+          height: parseFloat(height),
+          weight: parseFloat(weight),
+          carrier,
+          serviceMethod: serviceMethod || "Standard",
+          destinationCountry: destinationCountry.toUpperCase(),
+          basePrice: parseFloat(basePrice),
+          currency: (currency || "PLN").toUpperCase(),
+          source: "manual",
+          priceSetAt: new Date(),
+        },
+      });
+      await tx.priceHistory.create({ data: createdEntry(created, "manual", sessionEmail(session)) });
+      return created;
     });
 
     return NextResponse.json(item);
