@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth-options";
 import { prisma } from "@/lib/db";
 import { getFreightPrices, formatCollectionDate, calculateCBM } from "@/lib/cargoson";
 import { carrierNamesMatch, normalizeCarrierName } from "@/lib/carriers";
+import { changedEntry, createdEntry, samePrice, sessionEmail } from "@/lib/price-history";
 
 interface SyncRequest {
   countries?: string[];         // ISO-2 codes, e.g. ["DE", "FR"]; empty = all active recipients' countries
@@ -194,35 +195,50 @@ export async function POST(req: Request) {
           }
 
           if (existing) {
-            await prisma.priceListItem.update({
-              where: { id: existing.id },
-              data: {
-                basePrice: rawPrice,
-                currency,
-                source: "cargoson_api",
-                lastSyncedAt: new Date(),
-                isActive: true,
-              },
+            const priceChanged = !samePrice(existing.basePrice, existing.currency, rawPrice, currency);
+            await prisma.$transaction(async (tx) => {
+              const after = await tx.priceListItem.update({
+                where: { id: existing.id },
+                data: {
+                  basePrice: rawPrice,
+                  currency,
+                  source: "cargoson_api",
+                  lastSyncedAt: new Date(),
+                  isActive: true,
+                  ...(priceChanged && { priceSetAt: new Date() }),
+                },
+              });
+              if (priceChanged) {
+                await tx.priceHistory.create({
+                  data: changedEntry(existing, after, "cargoson_api", sessionEmail(session)),
+                });
+              }
             });
             updated++;
             if (debugSamples.length > 0)
               debugSamples[debugSamples.length - 1].savedAs = "updated";
           } else {
-            await prisma.priceListItem.create({
-              data: {
-                length: L,
-                width: W,
-                height: H,
-                weight: KG,
-                carrier,
-                serviceMethod,
-                destinationCountry: cc,
-                basePrice: rawPrice,
-                currency,
-                source: "cargoson_api",
-                lastSyncedAt: new Date(),
-                isActive: true,
-              },
+            await prisma.$transaction(async (tx) => {
+              const created = await tx.priceListItem.create({
+                data: {
+                  length: L,
+                  width: W,
+                  height: H,
+                  weight: KG,
+                  carrier,
+                  serviceMethod,
+                  destinationCountry: cc,
+                  basePrice: rawPrice,
+                  currency,
+                  source: "cargoson_api",
+                  lastSyncedAt: new Date(),
+                  isActive: true,
+                  priceSetAt: new Date(),
+                },
+              });
+              await tx.priceHistory.create({
+                data: createdEntry(created, "cargoson_api", sessionEmail(session)),
+              });
             });
             added++;
             if (debugSamples.length > 0)

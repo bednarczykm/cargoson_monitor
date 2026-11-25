@@ -83,8 +83,39 @@ model PriceListItem {
   destinationCountry String   @default("PL")
   serviceMethod      String   @default("Standard")
   isActive           Boolean  @default(true)
+  // Od kiedy obowiązuje obecna kwota (zmienia się tylko przy zmianie ceny
+  // lub waluty). NULL = pozycja sprzed włączenia historii cen; wtedy UI
+  // pokazuje datę przybliżoną (patrz lib/price-history.ts).
+  priceSetAt         DateTime?
 
   @@unique([length, width, height, weight, carrier, serviceMethod, destinationCountry])
+}
+
+// Historia cen cennika: jeden wpis na dodanie pozycji, zmianę kwoty/waluty
+// albo usunięcie pozycji. Celowo BEZ relacji do PriceListItem, żeby historia
+// przetrwała usunięcie pozycji; dane pozycji są zapisane w kopii.
+model PriceHistory {
+  id                 String   @id @default(cuid())
+  priceListItemId    String
+  action             String   // "created" | "changed" | "deleted"
+  length             Float
+  width              Float
+  height             Float
+  weight             Float
+  carrier            String
+  serviceMethod      String
+  destinationCountry String
+  oldPrice           Float?
+  oldCurrency        String?
+  newPrice           Float?
+  newCurrency        String?
+  source             String   // "manual" | "csv" | "cargoson_api"
+  changedBy          String?  // e-mail osoby, która wykonała zmianę
+  details            String?  // np. zmiana trasy przy edycji ręcznej
+  changedAt          DateTime @default(now())
+
+  @@index([priceListItemId, changedAt])
+  @@index([changedAt])
 }
 
 model Settings {

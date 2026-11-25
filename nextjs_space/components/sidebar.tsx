@@ -13,6 +13,7 @@ import {
   LogOut,
   Package,
   Truck,
+  LineChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Adresy", href: "/dashboard/recipients", icon: Users },
   { name: "Cennik", href: "/dashboard/pricelist", icon: FileText },
+  { name: "Historia cen", href: "/dashboard/price-history", icon: LineChart },
   { name: "Sprawdź ceny", href: "/dashboard/check-prices", icon: Truck },
   { name: "Historia", href: "/dashboard/history", icon: History },
   { name: "Alerty", href: "/dashboard/alerts", icon: AlertTriangle },

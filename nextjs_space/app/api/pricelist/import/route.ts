@@ -4,6 +4,13 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-options";
 import { prisma } from "@/lib/db";
+import {
+  changedEntry,
+  createdEntry,
+  deleteItemsWithHistory,
+  samePrice,
+  sessionEmail,
+} from "@/lib/price-history";
 
 function parseDimensions(dimStr: string): { length: number; width: number; height: number } | null {
   const match = dimStr?.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
@@ -34,6 +41,7 @@ export async function POST(req: Request) {
     }
 
     const results = { success: 0, errors: 0, deleted: 0 };
+    const who = sessionEmail(session);
 
     // Track the keys we see in this CSV. When replaceAll=true we wipe every
     // DB row whose key isn't in the CSV at the end.
@@ -62,30 +70,44 @@ export async function POST(req: Request) {
         const currency = ((row["Waluta"] || row["currency"] || "PLN") + "").toUpperCase();
 
         if (dims && weight && carrier && destinationCountry && basePrice) {
-          await prisma.priceListItem.upsert({
-            where: {
-              length_width_height_weight_carrier_serviceMethod_destinationCountry: {
-                length: dims.length,
-                width: dims.width,
-                height: dims.height,
-                weight,
-                carrier,
-                serviceMethod,
-                destinationCountry,
+          await prisma.$transaction(async (tx) => {
+            const before = await tx.priceListItem.findUnique({
+              where: {
+                length_width_height_weight_carrier_serviceMethod_destinationCountry: {
+                  length: dims.length,
+                  width: dims.width,
+                  height: dims.height,
+                  weight,
+                  carrier,
+                  serviceMethod,
+                  destinationCountry,
+                },
               },
-            },
-            update: { basePrice, currency },
-            create: {
-              length: dims.length,
-              width: dims.width,
-              height: dims.height,
-              weight,
-              carrier,
-              serviceMethod,
-              destinationCountry,
-              basePrice,
-              currency,
-            },
+            });
+            if (!before) {
+              const created = await tx.priceListItem.create({
+                data: {
+                  length: dims.length,
+                  width: dims.width,
+                  height: dims.height,
+                  weight,
+                  carrier,
+                  serviceMethod,
+                  destinationCountry,
+                  basePrice,
+                  currency,
+                  priceSetAt: new Date(),
+                },
+              });
+              await tx.priceHistory.create({ data: createdEntry(created, "csv", who) });
+            } else if (!samePrice(before.basePrice, before.currency, basePrice, currency)) {
+              const after = await tx.priceListItem.update({
+                where: { id: before.id },
+                data: { basePrice, currency, priceSetAt: new Date() },
+              });
+              await tx.priceHistory.create({ data: changedEntry(before, after, "csv", who) });
+            }
+            // Ta sama kwota i waluta: nic nie zapisujemy, „Cena od” zostaje.
           });
           seenKeys.add(
             keyOf(dims.length, dims.width, dims.height, weight, carrier, serviceMethod, destinationCountry),
@@ -118,10 +140,9 @@ export async function POST(req: Request) {
         ))
         .map((e) => e.id);
       if (toDelete.length > 0) {
-        const del = await prisma.priceListItem.deleteMany({
-          where: { id: { in: toDelete } },
-        });
-        results.deleted = del.count;
+        results.deleted = await prisma.$transaction((tx) =>
+          deleteItemsWithHistory(tx, { id: { in: toDelete } }, "csv", who),
+        );
       }
     }
 
